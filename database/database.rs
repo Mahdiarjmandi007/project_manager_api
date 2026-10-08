@@ -20,7 +20,7 @@ pub async fn create_users_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     Ok(())
     }
 
-    pub async fn create_project_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    pub async fn create_projects_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS projects (
@@ -63,10 +63,10 @@ pub async fn create_users_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     Ok(())
     }
 
-    pub async fn create_task_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    pub async fn create_tasks_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
-        CREATE TABLE IF NOT EXISTS task (
+        CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             projrct_id INTEGER NOT NULL,
             title TEXT NOT NULL,
@@ -76,13 +76,13 @@ pub async fn create_users_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             created_by INTEGER NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            update_count INTEGER NOT NULL DEFAULT 0 
+            update_count INTEGER NOT NULL DEFAULT 0, 
 
 
 
 
-            FOREIGN KEY (projrct_id) REFERENCES projects(id)
-            FOREIGN KEY (assignee_id) REFERENCES users(id)
+            FOREIGN KEY (projrct_id) REFERENCES projects(id),
+            FOREIGN KEY (assignee_id) REFERENCES users(id),
             FOREIGN KEY (created_by) REFERENCES users(id)
 
         )
