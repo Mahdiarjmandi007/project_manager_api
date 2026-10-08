@@ -67,3 +67,58 @@ pub async fn create_user(
     Ok(())
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    #[tokio::test]
+    async fn test_find_user_by_email() {
+        let pool = SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        sqlx::query(
+            r#"
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                fullname TEXT NOT NULL,
+                role TEXT NOT NULL,
+                is_active BOOLEAN NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        create_user(
+            &pool,
+            "mahdi@example.com",
+            "test_hash",
+            "Mahdi Arjmandi",
+        )
+        .await
+        .unwrap();
+
+        let user = find_user_by_email(
+            &pool,
+            "mahdi@example.com",
+        )
+        .await
+        .unwrap();
+
+        assert!(user.is_some());
+
+        let user = user.unwrap();
+
+        assert_eq!(user.email, "mahdi@example.com");
+        assert_eq!(user.fullname, "Mahdi Arjmandi");
+        assert_eq!(user.role, "member");
+    }
+}
