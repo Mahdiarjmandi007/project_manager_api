@@ -1,0 +1,24 @@
+name: Rust CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: run tests
+        run: cargo test
+
+
+
