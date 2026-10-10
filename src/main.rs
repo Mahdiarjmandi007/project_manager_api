@@ -1,5 +1,5 @@
 #[path = "../database/database.rs"]
-mod database;
+pub mod database;
 
 mod auth;
 
