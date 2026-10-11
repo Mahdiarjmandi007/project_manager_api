@@ -1,7 +1,7 @@
 #[path = "../database/database.rs"]
 pub mod database;
-
 mod auth;
+mod token;
 
 #[tokio::main]
 async fn main() -> Result<(), sqlx::Error> {

@@ -9,11 +9,12 @@ use argon2::{
 };
 use sqlx::{FromRow, SqlitePool};
 use rand_core::OsRng;
-
+use crate::token::create_access_token;
 
 use crate::database::users::{
     create_user,
     find_user_by_email,
+    User,
 };
 
 #[derive(Debug)]
@@ -22,6 +23,7 @@ pub enum RegisterError {
     EmailAlreadyExists,
     InvalidPassword,
     EmailNotFound,
+    TokenCreation,
     Database(sqlx::Error),
     Hash(argon2::password_hash::Error),
 }
@@ -91,7 +93,7 @@ pub async fn login(
     pool: &SqlitePool,
     email: &str,
     password: &str,
-) -> Result<(), RegisterError> {
+) -> Result<String , RegisterError> {
     let user = find_user_by_email(pool, email)
         .await
         .map_err(RegisterError::Database)?;
@@ -106,8 +108,8 @@ pub async fn login(
     if !is_valid{
         return Err(RegisterError::InvalidPassword);
     }
-
-    Ok(())
+    let access_toekn=create_access_token(user.id, &user.role ,"test_secret").map_err(|_| RegisterError::TokenCreation)?;
+    Ok(access_toekn)
 }
 
 
@@ -124,7 +126,6 @@ mod tests {
 
         assert!(!hash.is_empty());
     }
-
     #[test]
     fn test_same_password_has_different_hash() {
         let password = "123456";
@@ -134,7 +135,6 @@ mod tests {
 
         assert_ne!(hash1, hash2);
     }
-
     #[test]
     fn test_verify_correct_password() {
         let password = "123456";
@@ -143,7 +143,6 @@ mod tests {
 
         assert!(verify_password(password, &hash).unwrap());
     }
-
     #[test]
     fn test_wrong_password() {
         let password = "123456";
