@@ -1,5 +1,9 @@
+#[path = "../src/auth.rs"]
+mod auth;
 use sqlx::{FromRow, SqlitePool};
 use chrono::{NaiveDate,Datelike,Duration};
+
+use crate::auth::hash_password;
 
 #[derive(Debug, FromRow)]
 pub struct User {
@@ -39,10 +43,10 @@ pub async fn find_user_by_email(
 pub async fn create_user(
     pool: &SqlitePool,
     email: &str,
-    password_hash: &str,
+    password: &str,
     fullname: &str,
 )->Result<(),sqlx::Error>{
-
+    let password_hash=hash_password(password).unwrap();
     let created_at = chrono::Local::now()
     .format("%Y-%m-%d %H:%M:%S").to_string();
 

@@ -20,6 +20,8 @@ use crate::database::users::{
 pub enum RegisterError {
     PasswordTooShort,
     EmailAlreadyExists,
+    InvalidPassword,
+    EmailNotFound,
     Database(sqlx::Error),
     Hash(argon2::password_hash::Error),
 }
@@ -84,6 +86,30 @@ pub async fn register(
 
     Ok(())
 }
+
+pub async fn login(
+    pool: &SqlitePool,
+    email: &str,
+    password: &str,
+) -> Result<(), RegisterError> {
+    let user = find_user_by_email(pool, email)
+        .await
+        .map_err(RegisterError::Database)?;
+    if user.is_none(){
+        return Err(RegisterError::EmailNotFound);
+    }
+    
+    let user = user.unwrap();
+    
+    let is_valid=verify_password(password, &user.password_hash).map_err(RegisterError::Hash)?;
+
+    if !is_valid{
+        return Err(RegisterError::InvalidPassword);
+    }
+
+    Ok(())
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -173,9 +199,6 @@ async fn test_register_to_short_password() {
         Err(RegisterError::PasswordTooShort)
     ));
 }
-    
-
-
 #[tokio::test]
 async fn test_register_email_exist() {
     let pool = SqlitePoolOptions::new()
@@ -222,4 +245,134 @@ async fn test_register_email_exist() {
         Err(RegisterError::EmailAlreadyExists)
     ));
 }
+#[tokio::test]
+async fn test_success_login(){
+        let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+
+    sqlx::query(
+        r#"
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            fullname TEXT NOT NULL,
+            role TEXT NOT NULL,
+            is_active BOOLEAN NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        )
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    create_user(
+        &pool,
+        "mahdi@example.com",
+        "test_hash",
+        "Mahdi Arjmandi",
+    )
+    .await
+    .unwrap();
+    
+    let result= login(
+        &pool,
+        "mahdi@example.com",
+        "test_hash",).await;
+    assert!(
+    result.is_ok(),
+    "Login failed: {:?}",
+    result.unwrap_err()
+);
+}
+#[tokio::test]
+async fn test_login_email_not_found(){
+        let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+
+    sqlx::query(
+        r#"
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            fullname TEXT NOT NULL,
+            role TEXT NOT NULL,
+            is_active BOOLEAN NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        )
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    create_user(
+        &pool,
+        "mahdi@example.com",
+        "test_hash",
+        "Mahdi Arjmandi",
+    )
+    .await
+    .unwrap();
+    
+    let result= login(
+        &pool,
+        "mahdi@.com",
+        "test_hash",).await;
+
+        assert!(matches!(
+        result,
+        Err(RegisterError::EmailNotFound)
+    ));
+}
+#[tokio::test]
+async fn test_login_invalid_password(){
+        let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+
+    sqlx::query(
+        r#"
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            fullname TEXT NOT NULL,
+            role TEXT NOT NULL,
+            is_active BOOLEAN NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        )
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    create_user(
+        &pool,
+        "mahdi@example.com",
+        "test_hash",
+        "Mahdi Arjmandi",
+    )
+    .await
+    .unwrap();
+    
+    let result= login(
+        &pool,
+        "mahdi@example.com",
+        "test",).await;
+
+        assert!(matches!(
+        result,
+        Err(RegisterError::InvalidPassword)
+    ));
+}
+
 }
