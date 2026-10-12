@@ -50,7 +50,7 @@ pub async fn create_users_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             project_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL,
 
-            PRIMARY KEY(project_id,user_id)
+            PRIMARY KEY(project_id,user_id),
 
             FOREIGN KEY (project_id) REFERENCES projects(id),
             FOREIGN KEY (user_id) REFERENCES users(id)
@@ -69,7 +69,7 @@ pub async fn create_users_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         r#"
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            projrct_id INTEGER NOT NULL,
+            project_id INTEGER NOT NULL,
             title TEXT NOT NULL,
             description TEXT,
             status TEXT NOT NULL DEFAULT 'todo',

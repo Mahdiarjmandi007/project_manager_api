@@ -1,31 +1,43 @@
 #[path = "../database/database.rs"]
-pub mod database;
+mod database;
 mod auth;
 mod token;
-use dotenvy;
+mod routes;
+
+use sqlx::sqlite::SqlitePoolOptions;
+use tokio::net::TcpListener;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub pool: sqlx::SqlitePool,
+    pub jwt_secret: String,
+}
 
 #[tokio::main]
-async fn main() -> Result<(), sqlx::Error> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
 
-    let jwt_secret = std::env::var("JWT_SECRET")
-        .expect("JWT_SECRET must be set");
-    println!("loaded token successfully");
+    let jwt_secret = std::env::var("JWT_SECRET")?;
 
-
-
-    println!("Current directory: {:?}", std::env::current_dir());
-    let pool = sqlx::SqlitePool::connect(
-        "sqlite://database/project_management.db?mode=rwc"
-    )
-    .await?;
+    let pool = SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect("sqlite://database/project_management.db?mode=rwc")
+        .await?;
 
     database::create_users_table(&pool).await?;
-    database::create_projects_table(&pool).await?;
-    database::create_projectmember_table(&pool).await?;
-    database::create_tasks_table(&pool).await?;
 
-    println!("Database initialized successfully.");
+    let state = AppState {
+        pool,
+        jwt_secret,
+    };
+
+    let app = routes::create_router(state);
+
+    let listener = TcpListener::bind("127.0.0.1:3000").await?;
+
+    println!("Server is running at http://127.0.0.1:3000");
+
+    axum::serve(listener, app).await?;
 
     Ok(())
 }
