@@ -39,6 +39,29 @@ pub async fn find_user_by_email(
     .await?;
     Ok(user)
 }
+pub async fn find_user_by_id(
+    pool: &SqlitePool,
+    user_id: i64,
+)->Result<Option<User>,sqlx::Error>{
+    let user=sqlx::query_as::<_,User>(
+    r#"
+    SELECT 
+        id,
+        email,
+        password_hash,
+        fullname,
+        role,
+        is_active,
+        created_at
+    FROM users
+    WHERE id=?
+    "#,    
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(user)
+}
 
 pub async fn create_user(
     pool: &SqlitePool,

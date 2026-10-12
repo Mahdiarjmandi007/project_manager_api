@@ -1,3 +1,4 @@
+use argon2::Result;
 use axum::{
     extract::State,
     http::StatusCode,
@@ -9,7 +10,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
-use crate::auth::{self, RegisterError};
+use crate::auth::{self, RegisterError, login};
 
 #[derive(Deserialize)]
 struct RegisterRequest{
@@ -17,10 +18,21 @@ struct RegisterRequest{
     password: String,
     fullname: String,
 }
+#[derive(Deserialize)]
+struct LoginRequest{
+    email: String,
+    password: String,
+    
+}
 
 #[derive(Serialize)]
 struct ApiMessage{
     message: String,
+}
+#[derive(Serialize)]
+struct LoginResponse {
+    message: String,
+    access_token: String,
 }
 
 async fn register_handler(
@@ -66,7 +78,58 @@ async fn register_handler(
 }
 
 
+async fn login_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<LoginRequest>,
+) -> impl IntoResponse{
+    let Result=login(
+        &state.pool, 
+        &payload.email, 
+        &payload.password, 
+        &state.jwt_secret
+    ).await;
+
+    match Result {
+        Ok(access_token) =>(             
+            StatusCode::CREATED,
+            Json(LoginResponse{
+                message: "user logined successfully".to_string(),
+                access_token,
+            }),
+        ).into_response(),
+
+        Err(RegisterError::EmailNotFound)=>(
+            StatusCode::UNAUTHORIZED,
+                Json(ApiMessage{
+                message: "email not found".to_string(),
+                
+            }),
+        ).into_response(),
+
+        Err(RegisterError::InvalidPassword)=>(
+            StatusCode::UNAUTHORIZED,
+                Json(ApiMessage{
+                message: "invalid password".to_string(),
+            }),
+
+        ).into_response(),
+
+        Err(_) => (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ApiMessage {
+            message: "Internal server error".to_string(),
+        }),
+        ).into_response(),
+
+        
+    }
+
+
+
+}
+
 pub fn auth_routes() -> Router<AppState> {
     Router::new()
         .route("/register", post(register_handler))
+        .route("/login", post(login_handler))
 }
