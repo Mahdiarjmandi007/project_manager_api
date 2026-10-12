@@ -2,9 +2,18 @@
 pub mod database;
 mod auth;
 mod token;
+use dotenvy;
 
 #[tokio::main]
 async fn main() -> Result<(), sqlx::Error> {
+    dotenvy::dotenv().ok();
+
+    let jwt_secret = std::env::var("JWT_SECRET")
+        .expect("JWT_SECRET must be set");
+    println!("loaded token successfully");
+
+
+
     println!("Current directory: {:?}", std::env::current_dir());
     let pool = sqlx::SqlitePool::connect(
         "sqlite://database/project_management.db?mode=rwc"

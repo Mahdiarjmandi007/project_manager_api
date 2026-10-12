@@ -1,6 +1,5 @@
 # Rust build files
 /target/
-.lock
 
 # Environment variables / secrets
 .env

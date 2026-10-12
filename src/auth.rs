@@ -93,6 +93,7 @@ pub async fn login(
     pool: &SqlitePool,
     email: &str,
     password: &str,
+    secret: &str,
 ) -> Result<String , RegisterError> {
     let user = find_user_by_email(pool, email)
         .await
@@ -108,7 +109,7 @@ pub async fn login(
     if !is_valid{
         return Err(RegisterError::InvalidPassword);
     }
-    let access_toekn=create_access_token(user.id, &user.role ,"test_secret").map_err(|_| RegisterError::TokenCreation)?;
+    let access_toekn=create_access_token(user.id, &user.role , secret).map_err(|_| RegisterError::TokenCreation)?;
     Ok(access_toekn)
 }
 
@@ -280,7 +281,8 @@ async fn test_success_login(){
     let result= login(
         &pool,
         "mahdi@example.com",
-        "test_hash",).await;
+        "test_hash",
+        "test").await;
     assert!(
     result.is_ok(),
     "Login failed: {:?}",
@@ -323,7 +325,8 @@ async fn test_login_email_not_found(){
     let result= login(
         &pool,
         "mahdi@.com",
-        "test_hash",).await;
+        "test_hash",
+        "test").await;
 
         assert!(matches!(
         result,
@@ -366,7 +369,8 @@ async fn test_login_invalid_password(){
     let result= login(
         &pool,
         "mahdi@example.com",
-        "test",).await;
+        "test",
+        "test").await;
 
         assert!(matches!(
         result,

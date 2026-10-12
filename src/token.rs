@@ -1,5 +1,12 @@
 use serde::{Deserialize,Serialize};
-use jsonwebtoken::{encode, EncodingKey, Header};
+use jsonwebtoken::{
+    decode,
+    encode,
+    DecodingKey,
+    EncodingKey,
+    Header,
+    Validation,
+};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug,Deserialize,Serialize)]
@@ -34,4 +41,58 @@ pub fn create_access_token(
     )?;
 
     Ok(token)
+}
+
+pub fn decode_access_token(
+    token: &str,
+    secret: &str,
+) -> Result<Claims, jsonwebtoken::errors::Error> {
+
+    let token_data=decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &Validation::default(),
+    )?;
+
+    Ok(token_data.claims)
+}
+
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    const TEST_SECRET: &str = "test-secret-for-unit-tests-only";
+
+    #[test]
+    fn test_create_and_decode_token(){
+        let token=create_access_token(7, "member", TEST_SECRET,).unwrap();
+        let claim=decode_access_token(&token,TEST_SECRET).unwrap();
+
+        assert_eq!(claim.sub, "7");
+        assert_eq!(claim.role, "member");
+
+    }
+    #[test]
+    fn test_wrong_token(){
+        let token=create_access_token(7, "member", TEST_SECRET,).unwrap();
+        let wrong_token=format!("{}x", token);
+
+        let result=decode_access_token(&wrong_token,TEST_SECRET);
+
+
+        assert!(result.is_err());
+
+    }
+    #[test]
+    fn test_wrong_secretkey(){
+        let token=create_access_token(7, "member", TEST_SECRET,).unwrap();
+        let wrong_secret=format!("{}x", TEST_SECRET);
+
+        let result=decode_access_token(&token,&wrong_secret);
+
+
+        assert!(result.is_err());
+
+    }
 }
