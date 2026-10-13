@@ -222,20 +222,20 @@ async fn test_register_email_exist() {
     .execute(&pool)
     .await
     .unwrap();
-
+    let password_hash = hash_password("correct_password").unwrap();
     create_user(
         &pool,
         "mahdi@example.com",
-        "test_hash",
+        &password_hash,
         "Mahdi Arjmandi",
     )
     .await
     .unwrap();
-
+    
     let result = register(
         &pool,
         "mahdi@example.com",
-        "test_hash",
+        "correct_password",
         "Mahdi",
     )
     .await;
@@ -268,11 +268,11 @@ async fn test_success_login(){
     .execute(&pool)
     .await
     .unwrap();
-
+    let password_hash = hash_password("correct_password").unwrap();
     create_user(
         &pool,
         "mahdi@example.com",
-        "test_hash",
+        &password_hash,
         "Mahdi Arjmandi",
     )
     .await
@@ -281,7 +281,7 @@ async fn test_success_login(){
     let result= login(
         &pool,
         "mahdi@example.com",
-        "test_hash",
+        "correct_password",
         "test").await;
     assert!(
     result.is_ok(),
@@ -312,11 +312,11 @@ async fn test_login_email_not_found(){
     .execute(&pool)
     .await
     .unwrap();
-
+    let password_hash = hash_password("correct_password").unwrap();
     create_user(
         &pool,
         "mahdi@example.com",
-        "test_hash",
+        &password_hash,
         "Mahdi Arjmandi",
     )
     .await
@@ -325,7 +325,7 @@ async fn test_login_email_not_found(){
     let result= login(
         &pool,
         "mahdi@.com",
-        "test_hash",
+        "correct_password",
         "test").await;
 
         assert!(matches!(
@@ -356,11 +356,11 @@ async fn test_login_invalid_password(){
     .execute(&pool)
     .await
     .unwrap();
-
+    let password_hash = hash_password("correct_password").unwrap();
     create_user(
         &pool,
         "mahdi@example.com",
-        "test_hash",
+        &password_hash,
         "Mahdi Arjmandi",
     )
     .await
