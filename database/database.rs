@@ -82,7 +82,7 @@ pub async fn create_users_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 
 
 
-            FOREIGN KEY (projrct_id) REFERENCES projects(id),
+            FOREIGN KEY (project_id) REFERENCES projects(id),
             FOREIGN KEY (assignee_id) REFERENCES users(id),
             FOREIGN KEY (created_by) REFERENCES users(id)
 
@@ -94,3 +94,14 @@ pub async fn create_users_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 
     Ok(())
     }
+
+    pub async fn create_all_tables(
+    pool: &SqlitePool,
+) -> Result<(), sqlx::Error> {
+    create_users_table(pool).await?;
+    create_projects_table(pool).await?;
+    create_projectmember_table(pool).await?;
+    create_tasks_table(pool).await?;
+
+    Ok(())
+}

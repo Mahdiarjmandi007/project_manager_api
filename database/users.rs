@@ -94,7 +94,42 @@ pub async fn create_user(
     Ok(())
 }
 
+pub async fn create_admin(
+    pool: &SqlitePool,
+    email: &str,
+    password_hash: &str,
+    fullname: &str,
+) -> Result<(),sqlx::Error>{
+    let exist_user=find_user_by_email(pool, email).await?;
 
+    if exist_user.is_some(){
+        return Ok(());
+    }
+     let created_at = chrono::Local::now()
+    .format("%Y-%m-%d %H:%M:%S").to_string();   
+
+    sqlx::query(
+        r#"
+        INSERT INTO users(
+        email,
+        password_hash,
+        fullname,
+        role,
+        created_at
+        )
+        VALUES(?,?,?,'admin',?)
+        "#,
+    )
+    .bind(email)
+    .bind(password_hash)
+    .bind(fullname)
+    .bind(created_at)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+
+}
 
 #[cfg(test)]
 mod tests {
