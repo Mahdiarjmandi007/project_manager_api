@@ -1,4 +1,5 @@
 use serde::{Deserialize,Serialize};
+use sha2::{Digest, Sha256};
 use jsonwebtoken::{
     decode,
     encode,
@@ -10,9 +11,10 @@ use jsonwebtoken::{
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug,Deserialize,Serialize)]
-pub struct Claims{
+pub struct Claims {
     pub sub: String,
     pub role: String,
+    pub token_type: String,
     pub exp: usize,
 }
 
@@ -31,6 +33,7 @@ pub fn create_access_token(
     let claims = Claims {
         sub: user_id.to_string(),
         role: role.to_string(),
+        token_type:"access".to_string(),
         exp: expiration_time as usize,
     };
 
@@ -53,8 +56,73 @@ pub fn decode_access_token(
         &DecodingKey::from_secret(secret.as_bytes()),
         &Validation::default(),
     )?;
+    let claims = token_data.claims;
 
-    Ok(token_data.claims)
+    if claims.token_type != "access" {
+        return Err(jsonwebtoken::errors::Error::from(
+            jsonwebtoken::errors::ErrorKind::InvalidToken,
+        ));
+    }
+
+    Ok(claims)
+}
+
+pub fn create_refresh_token(
+    user_id: i64,
+    role: &str,
+    secret: &str 
+) ->Result<String, jsonwebtoken::errors::Error>{
+    let current_time = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .expect("System time is before Unix epoch")
+    .as_secs();
+
+    let expiration_time = current_time + 7 * 24 * 60 * 60;
+
+    let claims = Claims {
+        sub: user_id.to_string(),
+        role: role.to_string(),
+        token_type:"refresh".to_string(),
+        exp: expiration_time as usize,
+    };
+
+    let token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(secret.as_bytes()),
+    )?;
+
+    Ok(token)
+}
+
+pub fn decode_refresh_token(
+    token: &str,
+    secret: &str,
+) -> Result<Claims, jsonwebtoken::errors::Error> {
+
+    let token_data=decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &Validation::default(),
+    )?;
+    let claims = token_data.claims;
+
+    if claims.token_type != "refresh" {
+        return Err(jsonwebtoken::errors::Error::from(
+            jsonwebtoken::errors::ErrorKind::InvalidToken,
+        ));
+    }
+
+    Ok(claims)
+}
+
+pub fn hash_refresh_token(token: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+
+    let result = hasher.finalize();
+
+    format!("{:x}", result)
 }
 
 

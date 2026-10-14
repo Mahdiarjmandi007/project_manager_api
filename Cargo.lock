@@ -1100,6 +1100,7 @@ dependencies = [
  "jsonwebtoken",
  "rand_core",
  "serde",
+ "sha2",
  "sqlx",
  "tokio",
 ]

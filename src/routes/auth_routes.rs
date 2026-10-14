@@ -10,7 +10,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
-use crate::auth::{self, RegisterError, login};
+use crate::auth::{self, RegisterError, login , Tokens};
 
 #[derive(Deserialize)]
 struct RegisterRequest{
@@ -33,6 +33,7 @@ struct ApiMessage{
 struct LoginResponse {
     message: String,
     access_token: String,
+    refresh_token: String,
 }
 
 async fn register_handler(
@@ -82,48 +83,65 @@ async fn login_handler(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> impl IntoResponse{
-    let Result=login(
+    let result=login(
         &state.pool, 
         &payload.email, 
         &payload.password, 
         &state.jwt_secret
     ).await;
 
-    match Result {
-        Ok(access_token) =>(             
-            StatusCode::CREATED,
-            Json(LoginResponse{
-                message: "user logined successfully".to_string(),
-                access_token,
-            }),
-        ).into_response(),
-
-        Err(RegisterError::EmailNotFound)=>(
-            StatusCode::UNAUTHORIZED,
-                Json(ApiMessage{
-                message: "email not found".to_string(),
-                
-            }),
-        ).into_response(),
-
-        Err(RegisterError::InvalidPassword)=>(
-            StatusCode::UNAUTHORIZED,
-                Json(ApiMessage{
-                message: "invalid password".to_string(),
-            }),
-
-        ).into_response(),
-
-        Err(_) => (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiMessage {
-            message: "Internal server error".to_string(),
+match result {
+    Ok(Some(tokens)) => (
+        StatusCode::OK,
+        Json(LoginResponse {
+            message: "user logged in successfully".to_string(),
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
         }),
-        ).into_response(),
+    )
+        .into_response(),
 
-        
-    }
+    Ok(None) => (
+        StatusCode::UNAUTHORIZED,
+        Json(ApiMessage {
+            message: "login failed".to_string(),
+        }),
+    )
+        .into_response(),
 
+    Err(RegisterError::EmailNotFound) => (
+        StatusCode::UNAUTHORIZED,
+        Json(ApiMessage {
+            message: "email not found".to_string(),
+        }),
+    )
+        .into_response(),
+    Err(RegisterError::PasswordTooShort) => (
+        StatusCode::UNAUTHORIZED,
+        Json(ApiMessage {
+            message: "password too short".to_string(),
+        }),
+    )
+        .into_response(),
+    
+    Err(RegisterError::InvalidPassword) => (
+        StatusCode::UNAUTHORIZED,
+        Json(ApiMessage {
+            message: "invalid password".to_string(),
+        }),
+    )
+        .into_response(),
+
+    Err(_) => (
+    StatusCode::INTERNAL_SERVER_ERROR,
+    Json(ApiMessage {
+        message: "Internal server error".to_string(),
+        }),
+    )
+    .into_response()
+
+    
+}
 
 
 }

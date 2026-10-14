@@ -1,6 +1,6 @@
 use sqlx::SqlitePool;
 pub mod users;
-
+pub mod refresh_tokens;
 pub async fn create_users_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
@@ -95,6 +95,32 @@ pub async fn create_users_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     Ok(())
     }
 
+    pub async fn create_refresh_token_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS refresh_token (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            expires_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            revoked_at TEXT, 
+
+
+
+
+            FOREIGN KEY (user_id) REFERENCES users(id)
+
+
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+    }
+
     pub async fn create_all_tables(
     pool: &SqlitePool,
 ) -> Result<(), sqlx::Error> {
@@ -102,6 +128,7 @@ pub async fn create_users_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     create_projects_table(pool).await?;
     create_projectmember_table(pool).await?;
     create_tasks_table(pool).await?;
+    create_refresh_token_table(pool).await?;
 
     Ok(())
 }
