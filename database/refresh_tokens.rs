@@ -10,7 +10,7 @@ pub async fn insert_refresh_token(
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
-        INSERT INTO refresh_tokens (
+        INSERT INTO refresh_token (
             user_id,
             token_hash,
             expires_at,
@@ -39,7 +39,7 @@ pub async fn is_refresh_token_valid(
         r#"
         SELECT EXISTS (
             SELECT 1
-            FROM refresh_tokens
+            FROM refresh_token
             WHERE token_hash = ?
               AND revoked_at IS NULL
               AND expires_at > ?
@@ -62,7 +62,7 @@ pub async fn revoke_refresh_token(
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
         r#"
-        UPDATE refresh_tokens
+        UPDATE refresh_token
         SET revoked_at = ?
         WHERE token_hash = ?
           AND revoked_at IS NULL

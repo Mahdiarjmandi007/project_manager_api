@@ -10,7 +10,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
-use crate::auth::{self, RegisterError, login , Tokens};
+use crate::auth::{self, RegisterError, login ,refresh};
 //struct for request
 #[derive(Deserialize)]
 struct RegisterRequest{
@@ -41,6 +41,13 @@ struct LoginResponse {
     access_token: String,
     refresh_token: String,
 }
+#[derive(Serialize)]
+struct refreshResponse {
+    message: String,
+    access_token: String,
+    refresh_token: String,
+}
+
 
 async fn register_handler(
     State(state): State<AppState>,
@@ -139,21 +146,62 @@ match result {
         .into_response(),
 
     Err(_) => (
-    StatusCode::INTERNAL_SERVER_ERROR,
-    Json(ApiMessage {
-        message: "Internal server error".to_string(),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ApiMessage {
+            message: "Internal server error".to_string(),
         }),
     )
-    .into_response()
+        .into_response(),
 
     
 }
 
+}
+async fn refresh_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<RefreshRequest>,
+) -> impl IntoResponse{
+    let result=refresh(&state.pool, &payload.refresh_token, &state.jwt_secret).await;
+    match result {
+    Ok(tokens) => (
+        StatusCode::OK,
+        Json(LoginResponse {
+            message: "user logged in successfully".to_string(),
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
+        }),
+    )
+        .into_response(),
+    Err(RegisterError::InvalidRefreshToken) => (
+        StatusCode::UNAUTHORIZED,
+        Json(ApiMessage {
+            message: "invalid refresh error".to_string(),
+        }),
+    )
+        .into_response(),
 
+    Err(RegisterError::InactiveUser) => (
+        StatusCode::UNAUTHORIZED,
+        Json(ApiMessage {
+            message: "user not is active".to_string(),
+        }),
+    )
+        .into_response(),
+
+    Err(_) => (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ApiMessage {
+            message: "Internal server error".to_string(),
+        }),
+    )
+    .into_response()
+
+}
 }
 
 pub fn auth_routes() -> Router<AppState> {
     Router::new()
         .route("/register", post(register_handler))
         .route("/login", post(login_handler))
+        .route("/refresh", post(refresh_handler))
 }
