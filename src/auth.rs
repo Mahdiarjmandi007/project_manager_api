@@ -189,12 +189,10 @@ pub async fn refresh(
                 AND user_id = ?
                 AND revoked_at IS NULL
                 AND expires_at > ?
-
-
         )
         "#,
     )
-    .bind(&old_refresh_token)
+    .bind(&old_token_hash)
     .bind(user_id)
     .bind(&current_time)
     .fetch_one(&mut *tx)
@@ -231,7 +229,7 @@ pub async fn refresh(
 
     let result = sqlx::query(
         r#"
-        UPDATE refresh_tokens
+        UPDATE refresh_token
         SET revoked_at = ?
         WHERE token_hash = ?
             AND user_id = ?
@@ -251,7 +249,7 @@ pub async fn refresh(
 
     sqlx::query(
         r#"
-        INSERT INTO refresh_tokens (
+        INSERT INTO refresh_token (
             user_id, token_hash, expires_at, created_at
         )
         VALUES (?, ?, ?, ?)
