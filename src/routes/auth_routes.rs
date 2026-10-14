@@ -1,4 +1,4 @@
-use argon2::Result;
+
 use axum::{
     extract::State,
     http::StatusCode,
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::AppState;
 use crate::auth::{self, RegisterError, login , Tokens};
-
+//struct for request
 #[derive(Deserialize)]
 struct RegisterRequest{
     email: String,
@@ -24,6 +24,12 @@ struct LoginRequest{
     password: String,
     
 }
+
+#[derive(Deserialize)]
+struct RefreshRequest {
+    refresh_token: String,
+}
+
 
 #[derive(Serialize)]
 struct ApiMessage{

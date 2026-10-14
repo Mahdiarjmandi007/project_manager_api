@@ -9,11 +9,16 @@ use argon2::{
 };
 use sqlx::{FromRow, SqlitePool};
 use rand_core::OsRng;
-use crate::token::{create_access_token,create_refresh_token,hash_refresh_token};
+use crate::token::{
+    create_access_token,
+    create_refresh_token,
+    decode_refresh_token,
+    hash_refresh_token};
 
 use crate::database::users::{
     create_user,
     find_user_by_email,
+    find_user_by_id,
     User,
 };
 
@@ -36,6 +41,8 @@ pub enum RegisterError {
     InvalidPassword,
     EmailNotFound,
     TokenCreation,
+    InvalidRefreshToken,
+    InactiveUser,
     Database(sqlx::Error),
     Hash(argon2::password_hash::Error),
 }
@@ -156,6 +163,119 @@ pub async fn login(
 }))
 }
 
+pub async fn refresh(
+    pool: &SqlitePool,
+    old_refresh_token: &str,
+    secret: &str,
+) -> Result<Tokens, RegisterError>{
+    let claims=decode_refresh_token(old_refresh_token, secret).map_err(|_| RegisterError::InvalidRefreshToken)?;
+    let user_id = claims
+        .sub
+        .parse::<i64>()
+        .map_err(|_| RegisterError::InvalidRefreshToken)?;
+
+    let old_token_hash=hash_refresh_token(old_refresh_token);
+
+    let now = chrono::Utc::now();
+    let current_time = now.format("%Y-%m-%d %H:%M:%S").to_string();
+
+    let mut tx = pool.begin().await.map_err(RegisterError::Database)?;
+    let is_valid: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS(
+            SELECT 1
+            FROM refresh_token
+            WHERE token_hash = ?
+                AND user_id = ?
+                AND revoked_at IS NULL
+                AND expires_at > ?
+
+
+        )
+        "#,
+    )
+    .bind(&old_refresh_token)
+    .bind(user_id)
+    .bind(&current_time)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(RegisterError::Database)?;
+
+    if !is_valid {
+        return Err(RegisterError::InvalidRefreshToken);
+    }
+
+    let user = sqlx::query_as::<_, crate::database::users::User>(
+        r#"
+        SELECT id, email, password_hash, fullname, role, is_active, created_at
+        FROM users
+        WHERE id = ?
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(RegisterError::Database)?
+    .ok_or(RegisterError::InvalidRefreshToken)?;
+
+    if !user.is_active{
+        return Err(RegisterError::InactiveUser)
+    }
+
+    let access_token = create_access_token(user.id, &user.role, secret).map_err(|_| RegisterError::TokenCreation)?;
+
+    let refresh_token = create_refresh_token(user.id, &user.role, secret).map_err(|_| RegisterError::TokenCreation)?;
+
+    let new_token_hash = hash_refresh_token(&refresh_token);
+    let expires_at = (now + chrono::Duration::days(7)).format("%Y-%m-%d %H:%M:%S").to_string();
+
+    let result = sqlx::query(
+        r#"
+        UPDATE refresh_tokens
+        SET revoked_at = ?
+        WHERE token_hash = ?
+            AND user_id = ?
+            AND revoked_at IS NULL
+    "#,
+    )
+    .bind(&current_time)
+    .bind(&old_token_hash)
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(RegisterError::Database)?;
+
+    if result.rows_affected() != 1 {
+        return Err(RegisterError::InvalidRefreshToken);
+    }
+
+    sqlx::query(
+        r#"
+        INSERT INTO refresh_tokens (
+            user_id, token_hash, expires_at, created_at
+        )
+        VALUES (?, ?, ?, ?)
+        "#,
+    )
+    .bind(user.id)
+    .bind(&new_token_hash)
+    .bind(&expires_at)
+    .bind(&current_time)
+    .execute(&mut *tx)
+    .await
+    .map_err(RegisterError::Database)?;
+
+    tx.commit()
+        .await
+        .map_err(RegisterError::Database)?;
+
+
+
+    Ok(Tokens {
+        access_token,
+        refresh_token,
+    })
+}   
 
 #[cfg(test)]
 mod tests {
