@@ -525,7 +525,7 @@ async fn test_success_login(){
 
     sqlx::query(
     r#"
-        CREATE TABLE refresh_tokens (
+        CREATE TABLE refresh_token (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
             token_hash TEXT NOT NULL UNIQUE,

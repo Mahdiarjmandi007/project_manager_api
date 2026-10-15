@@ -78,9 +78,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let app = routes::create_router(state);
 
-            let listener = TcpListener::bind("127.0.0.1:3000").await?;
+            let listener = TcpListener::bind("127.0.0.1:8080").await?;
 
-            println!("Server is running at http://127.0.0.1:3000");
+            println!("Server is running at http://127.0.0.1:8080");
 
             axum::serve(listener, app).await?;
         }

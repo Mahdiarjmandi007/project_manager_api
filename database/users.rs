@@ -62,6 +62,34 @@ pub async fn find_user_by_id(
     .await?;
     Ok(user)
 }
+pub async fn get_users(
+    pool: &SqlitePool,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<User>, sqlx::Error>{
+    let users = sqlx::query_as::<_, User>(
+        r#"
+        SELECT
+            id,
+            email,
+            password_hash,
+            fullname,
+            role,
+            is_active,
+            created_at
+        FROM users
+        ORDER BY id
+        LIMIT ? OFFSET ?
+        "#,
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(users)
+
+}
 
 pub async fn create_user(
     pool: &SqlitePool,
