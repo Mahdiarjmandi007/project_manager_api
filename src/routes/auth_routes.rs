@@ -3,7 +3,7 @@ use axum::{
     extract::State,
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post},
+    routing::{get, post,put},
     Json,
     Router,
     http::HeaderMap,
@@ -32,6 +32,11 @@ struct LoginRequest{
 #[derive(Deserialize)]
 struct RefreshRequest {
     refresh_token: String,
+}
+#[derive(Deserialize)]
+struct ChangePasswordRequest {
+    current_password: String,
+    new_password: String,
 }
 
 
@@ -368,6 +373,135 @@ async fn me_handler(
         .into_response()
 }
 
+async fn change_password_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<ChangePasswordRequest>,
+) -> impl IntoResponse{
+    let authorization = match headers.get("Authorization") {
+        Some(value) => value,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: "missing authorization header".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let authorization = match authorization.to_str() {
+        Ok(value) => value,
+        Err(_) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: "invalid authorization header".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+    let access_token = match authorization.strip_prefix("Bearer ") {
+        Some(token) if !token.is_empty() => token,
+        _ => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: "invalid authorization format".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+    let claims = match decode_access_token(
+        access_token,
+        &state.jwt_secret,
+    ) {
+        Ok(claims) => claims,
+        Err(_) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: "invalid or expired access token".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+    let user_id = match claims.sub.parse::<i64>() {
+        Ok(id) => id,
+        Err(_) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: "invalid access token".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+    match crate::auth::change_password(
+        &state.pool,
+        user_id,
+        &payload.current_password,
+        &payload.new_password,
+    )
+    .await
+    {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(ApiMessage {
+                message: "password changed successfully".to_string(),
+            }),
+        )
+            .into_response(),
+
+        Err(RegisterError::InvalidPassword) => (
+            StatusCode::UNAUTHORIZED,
+            Json(ApiMessage {
+                message: "current password is incorrect".to_string(),
+            }),
+        )
+            .into_response(),
+
+        Err(RegisterError::PasswordTooShort) => (
+            StatusCode::BAD_REQUEST,
+            Json(ApiMessage {
+                message: "new password must be at least 8 bytes long".to_string(),
+            }),
+        )
+            .into_response(),
+
+        Err(RegisterError::InactiveUser) => (
+            StatusCode::FORBIDDEN,
+            Json(ApiMessage {
+                message: "user account is inactive".to_string(),
+            }),
+        )
+            .into_response(),
+
+        Err(RegisterError::UserNotFound) => (
+            StatusCode::UNAUTHORIZED,
+            Json(ApiMessage {
+                message: "user not found".to_string(),
+            }),
+        )
+            .into_response(),
+
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiMessage {
+                message: "Internal server error".to_string(),
+            }),
+        )
+            .into_response(),
+    }
+
+
+}
+
 
 pub fn auth_routes() -> Router<AppState> {
     Router::new()
@@ -376,4 +510,5 @@ pub fn auth_routes() -> Router<AppState> {
         .route("/refresh", post(refresh_handler))
         .route("/logout", post(logout_handler))
         .route("/me", get(me_handler))
+        .route("/me/password", put(change_password_handler))
 }

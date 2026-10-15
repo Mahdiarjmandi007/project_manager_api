@@ -43,6 +43,7 @@ pub enum RegisterError {
     TokenCreation,
     InvalidRefreshToken,
     InactiveUser,
+    UserNotFound,
     Database(sqlx::Error),
     Hash(argon2::password_hash::Error),
 }
@@ -306,6 +307,80 @@ pub async fn logout(
     if result.rows_affected() != 1 {
         return Err(RegisterError::InvalidRefreshToken);
     }
+
+    Ok(())
+}
+
+
+pub async fn change_password(
+    pool: &SqlitePool,
+    user_id: i64,
+    current_password: &str,
+    new_password: &str,
+) -> Result<(), RegisterError>{
+    if new_password.len() < 8{
+       return Err(RegisterError::PasswordTooShort);
+    }
+
+    let mut tx = pool.begin().await.map_err(RegisterError::Database)?;
+
+    let user = sqlx::query_as::<_, crate::database::users::User>(
+        r#"
+        SELECT id, email, password_hash, fullname, role, is_active, created_at
+        FROM users
+        WHERE id = ?
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(RegisterError::Database)?
+    .ok_or(RegisterError::UserNotFound)?;
+
+    if !user.is_active{
+        return Err(RegisterError::InactiveUser)
+    }
+
+    let is_valid=verify_password(current_password, &user.password_hash,).map_err(RegisterError::Hash)?;
+    if !is_valid{
+        return Err(RegisterError::InvalidPassword);
+    }
+
+    let new_password_hash=hash_password(new_password).map_err(RegisterError::Hash)?;
+
+    sqlx::query(
+        r#"
+        UPDATE users
+        SET password_hash = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(&new_password_hash)
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(RegisterError::Database)?;
+
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    sqlx::query(
+        r#"
+        UPDATE refresh_token
+        SET revoked_at = ?
+        WHERE user_id = ?
+          AND revoked_at IS NULL
+        "#,
+    )
+    .bind(&now)
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(RegisterError::Database)?;
+
+    tx.commit()
+        .await
+        .map_err(RegisterError::Database)?;
+
 
     Ok(())
 }
