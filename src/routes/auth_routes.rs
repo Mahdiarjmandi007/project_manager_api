@@ -10,7 +10,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
-use crate::auth::{self, RegisterError, login ,refresh};
+use crate::auth::{self, RegisterError, login ,refresh,logout};
 //struct for request
 #[derive(Deserialize)]
 struct RegisterRequest{
@@ -175,7 +175,7 @@ async fn refresh_handler(
     Err(RegisterError::InvalidRefreshToken) => (
         StatusCode::UNAUTHORIZED,
         Json(ApiMessage {
-            message: "invalid refresh error".to_string(),
+            message: "invalid refresh token".to_string(),
         }),
     )
         .into_response(),
@@ -199,9 +199,43 @@ async fn refresh_handler(
 }
 }
 
+async fn logout_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<RefreshRequest>,
+) -> impl IntoResponse{
+    let result=logout(&state.pool, &payload.refresh_token, &state.jwt_secret).await;
+
+    match result {
+        Ok(()) =>(
+            StatusCode::OK,
+            Json(ApiMessage {
+                message: "user logged out successfully".to_string(),
+        }),
+        )
+            .into_response(),
+
+        Err(RegisterError::InvalidRefreshToken) => (
+            StatusCode::UNAUTHORIZED,
+            Json(ApiMessage {
+                message: "invalid refresh token".to_string(),
+            }),
+        )
+            .into_response(),
+
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiMessage {
+                message: "Internal server error".to_string(),
+            }),
+        )
+            .into_response()
+    }
+}
+
 pub fn auth_routes() -> Router<AppState> {
     Router::new()
         .route("/register", post(register_handler))
         .route("/login", post(login_handler))
         .route("/refresh", post(refresh_handler))
+        .route("/logout", post(logout_handler))
 }

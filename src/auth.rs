@@ -273,7 +273,42 @@ pub async fn refresh(
         access_token,
         refresh_token,
     })
-}   
+}
+
+pub async fn logout(
+    pool: &SqlitePool,
+    refresh_token: &str,
+    secret: &str,
+) -> Result<(), RegisterError> {
+    
+    decode_refresh_token(refresh_token, secret).map_err(|_| RegisterError::InvalidRefreshToken)?;
+
+    let token_hash = hash_refresh_token(refresh_token);
+
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    let result = sqlx::query(
+        r#"
+        UPDATE refresh_tokens
+        SET revoked_at = ?
+        WHERE token_hash = ?
+          AND revoked_at IS NULL
+          AND expires_at > ?
+        "#,
+    )
+    .bind(&now)
+    .bind(&token_hash)
+    .bind(&now)
+    .execute(pool)
+    .await
+    .map_err(RegisterError::Database)?;
+
+    if result.rows_affected() != 1 {
+        return Err(RegisterError::InvalidRefreshToken);
+    }
+
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
