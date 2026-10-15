@@ -289,7 +289,7 @@ pub async fn logout(
 
     let result = sqlx::query(
         r#"
-        UPDATE refresh_tokens
+        UPDATE refresh_token
         SET revoked_at = ?
         WHERE token_hash = ?
           AND revoked_at IS NULL

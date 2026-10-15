@@ -3,14 +3,18 @@ use axum::{
     extract::State,
     http::StatusCode,
     response::IntoResponse,
-    routing::post,
+    routing::{get, post},
     Json,
     Router,
+    http::HeaderMap,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
 use crate::auth::{self, RegisterError, login ,refresh,logout};
+use crate::token::decode_access_token;
+use crate::database::users::find_user_by_id;
+
 //struct for request
 #[derive(Deserialize)]
 struct RegisterRequest{
@@ -46,6 +50,13 @@ struct refreshResponse {
     message: String,
     access_token: String,
     refresh_token: String,
+}
+#[derive(Serialize)]
+struct MeResponse {
+    id: i64,
+    email: String,
+    fullname: String,
+    role: String,
 }
 
 
@@ -232,10 +243,137 @@ async fn logout_handler(
     }
 }
 
+
+async fn me_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    
+    let authorization = match headers.get("Authorization") {
+        Some(value) => value,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: "missing authorization header".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    
+    let authorization = match authorization.to_str() {
+        Ok(value) => value,
+        Err(_) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: "invalid authorization header".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    
+    let access_token = match authorization.strip_prefix("Bearer ") {
+        Some(token) if !token.is_empty() => token,
+        _ => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: "invalid authorization format".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    
+    let claims = match decode_access_token(
+        access_token,
+        &state.jwt_secret,
+    ) {
+        Ok(claims) => claims,
+        Err(_) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: "invalid or expired access token".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+   
+    let user_id = match claims.sub.parse::<i64>() {
+        Ok(id) => id,
+        Err(_) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: "invalid access token".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    
+    let user = match find_user_by_id(&state.pool, user_id).await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: "user not found".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiMessage {
+                    message: "Internal server error".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    
+    if !user.is_active {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ApiMessage {
+                message: "user account is inactive".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+   
+    (
+        StatusCode::OK,
+        Json(MeResponse {
+            id: user.id,
+            email: user.email,
+            fullname: user.fullname,
+            role: user.role,
+        }),
+    )
+        .into_response()
+}
+
+
 pub fn auth_routes() -> Router<AppState> {
     Router::new()
         .route("/register", post(register_handler))
         .route("/login", post(login_handler))
         .route("/refresh", post(refresh_handler))
         .route("/logout", post(logout_handler))
+        .route("/me", get(me_handler))
 }
