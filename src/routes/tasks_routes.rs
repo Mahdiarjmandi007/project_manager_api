@@ -1,27 +1,23 @@
-
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::{get,patch,delete},
-    Json, Router,
+    routing::{delete, get, patch},
 };
 use serde::Deserialize;
-use sqlx::query_scalar;
+
 use crate::{
-    auth_middleware::authenticate,
-    database::tasks::{
-    create_task as insert_task,
-    get_project_tasks,
-    get_task_by_id,
-    update_task,
-    update_task_status,
-    delete_task,
-    },
     AppState,
+    auth_middleware::authenticate,
+    database::{
+        projects::{can_access_project, get_project_owner_id, is_project_member},
+        tasks::{
+            create_task as insert_task, delete_task, get_project_tasks, get_task_by_id,
+            update_task, update_task_status,
+        },
+    },
 };
-
-
 
 #[derive(Deserialize)]
 struct TaskQuery {
@@ -56,19 +52,16 @@ struct UpdateTaskRequest {
     assignee_id: Option<i64>,
 }
 
-
 #[derive(Deserialize)]
 struct UpdateTaskStatusRequest {
     status: String,
 }
-
 
 #[derive(serde::Serialize)]
 struct TaskCreatedResponse {
     message: String,
     task_id: i64,
 }
-
 
 async fn list_tasks(
     State(state): State<AppState>,
@@ -101,8 +94,7 @@ async fn list_tasks(
         return (
             StatusCode::BAD_REQUEST,
             Json(ApiMessage {
-                message: "page must be positive and limit must be between 1 and 100"
-                    .to_string(),
+                message: "page must be positive and limit must be between 1 and 100".to_string(),
             }),
         )
             .into_response();
@@ -125,45 +117,10 @@ async fn list_tasks(
         None => return StatusCode::BAD_REQUEST.into_response(),
     };
 
-    
-    let project_exists = match sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM projects WHERE id = ?)",
-    )
-    .bind(project_id)
-    .fetch_one(&state.pool)
-    .await
-    {
-        Ok(exists) => exists,
-        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-    };
+    match can_access_project(&state.pool, project_id, user_id, &claims.role).await {
+        Ok(Some(true)) => {}
 
-    if !project_exists {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(ApiMessage {
-                message: "project not found".to_string(),
-            }),
-        )
-            .into_response();
-    }
-
-    if claims.role != "admin" {
-        let is_member = match sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(
-                SELECT 1 FROM projectmember
-                WHERE project_id = ? AND user_id = ?
-            )",
-        )
-        .bind(project_id)
-        .bind(user_id)
-        .fetch_one(&state.pool)
-        .await
-        {
-            Ok(value) => value,
-            Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-        };
-
-        if !is_member {
+        Ok(Some(false)) => {
             return (
                 StatusCode::FORBIDDEN,
                 Json(ApiMessage {
@@ -172,6 +129,18 @@ async fn list_tasks(
             )
                 .into_response();
         }
+
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ApiMessage {
+                    message: "project not found".to_string(),
+                }),
+            )
+                .into_response();
+        }
+
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 
     match get_project_tasks(
@@ -186,13 +155,10 @@ async fn list_tasks(
     {
         Ok(tasks) => (
             StatusCode::OK,
-            Json(TaskListResponse {
-                tasks,
-                page,
-                limit,
-            }),
+            Json(TaskListResponse { tasks, page, limit }),
         )
             .into_response(),
+
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
@@ -203,7 +169,6 @@ async fn create_task_handler(
     headers: HeaderMap,
     Json(payload): Json<CreateTaskRequest>,
 ) -> impl IntoResponse {
-    
     let claims = match authenticate(&headers, &state) {
         Ok(claims) => claims,
         Err(message) => {
@@ -230,7 +195,6 @@ async fn create_task_handler(
         }
     };
 
-    
     let title = payload.title.trim();
 
     if title.is_empty() {
@@ -243,15 +207,9 @@ async fn create_task_handler(
             .into_response();
     }
 
-    
-    let owner_id = match query_scalar::<_, i64>(
-        "SELECT owner_id FROM projects WHERE id = ?",
-    )
-    .bind(project_id)
-    .fetch_optional(&state.pool)
-    .await
-    {
+    let owner_id = match get_project_owner_id(&state.pool, project_id).await {
         Ok(Some(owner_id)) => owner_id,
+
         Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
@@ -261,57 +219,37 @@ async fn create_task_handler(
             )
                 .into_response();
         }
-        Err(_) => {
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
+
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
 
-    
-    if claims.role != "admin"
-        && (claims.role != "manager" || owner_id != user_id)
-    {
+    if claims.role != "admin" && (claims.role != "manager" || owner_id != user_id) {
         return (
             StatusCode::FORBIDDEN,
             Json(ApiMessage {
-                message: "You are not allowed to create tasks in this project"
-                    .to_string(),
+                message: "You are not allowed to create tasks in this project".to_string(),
             }),
         )
             .into_response();
     }
 
-    
     if let Some(assignee_id) = payload.assignee_id {
-        let is_member = match query_scalar::<_, bool>(
-            "SELECT EXISTS(
-                SELECT 1 FROM projectmember
-                WHERE project_id = ? AND user_id = ?
-            )",
-        )
-        .bind(project_id)
-        .bind(assignee_id)
-        .fetch_one(&state.pool)
-        .await
-        {
+        let is_member = match is_project_member(&state.pool, project_id, assignee_id).await {
             Ok(value) => value,
-            Err(_) => {
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
+            Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         };
 
         if !is_member {
             return (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 Json(ApiMessage {
-                    message: "Assignee must be a member of the project"
-                        .to_string(),
+                    message: "Assignee must be a member of the project".to_string(),
                 }),
             )
                 .into_response();
         }
     }
 
-    
     match insert_task(
         &state.pool,
         project_id,
@@ -340,7 +278,6 @@ async fn get_task_handler(
     Path(task_id): Path<i64>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    
     let claims = match authenticate(&headers, &state) {
         Ok(claims) => claims,
         Err(message) => {
@@ -367,9 +304,9 @@ async fn get_task_handler(
         }
     };
 
-    
     let task = match get_task_by_id(&state.pool, task_id).await {
         Ok(Some(task)) => task,
+
         Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
@@ -379,48 +316,31 @@ async fn get_task_handler(
             )
                 .into_response();
         }
-        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+
+        Err(_) => {
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
 
-    
-    if claims.role == "admin" {
-        return (StatusCode::OK, Json(task)).into_response();
-    }
+    match can_access_project(&state.pool, task.project_id, user_id, &claims.role).await {
+        Ok(Some(true)) => (StatusCode::OK, Json(task)).into_response(),
 
-    
-    let has_access = if claims.role == "manager" {
-        query_scalar::<_, bool>(
-            "SELECT EXISTS(
-                SELECT 1 FROM projects
-                WHERE id = ? AND owner_id = ?
-            )",
-        )
-        .bind(task.project_id)
-        .bind(user_id)
-        .fetch_one(&state.pool)
-        .await
-    } else {
-        query_scalar::<_, bool>(
-            "SELECT EXISTS(
-                SELECT 1 FROM projectmember
-                WHERE project_id = ? AND user_id = ?
-            )",
-        )
-        .bind(task.project_id)
-        .bind(user_id)
-        .fetch_one(&state.pool)
-        .await
-    };
-
-    match has_access {
-        Ok(true) => (StatusCode::OK, Json(task)).into_response(),
-        Ok(false) => (
+        Ok(Some(false)) => (
             StatusCode::FORBIDDEN,
             Json(ApiMessage {
                 message: "You are not allowed to access this task".to_string(),
             }),
         )
             .into_response(),
+
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ApiMessage {
+                message: "Project not found".to_string(),
+            }),
+        )
+            .into_response(),
+
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
@@ -431,7 +351,6 @@ async fn update_task_handler(
     headers: HeaderMap,
     Json(payload): Json<UpdateTaskRequest>,
 ) -> impl IntoResponse {
-    
     let claims = match authenticate(&headers, &state) {
         Ok(claims) => claims,
         Err(message) => {
@@ -448,11 +367,16 @@ async fn update_task_handler(
     let user_id = match claims.sub.parse::<i64>() {
         Ok(id) => id,
         Err(_) => {
-            return StatusCode::UNAUTHORIZED.into_response();
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: "Invalid user ID in token".to_string(),
+                }),
+            )
+                .into_response();
         }
     };
 
-    
     if let Some(title) = &payload.title {
         if title.trim().is_empty() {
             return (
@@ -465,11 +389,7 @@ async fn update_task_handler(
         }
     }
 
-    
-    if payload.title.is_none()
-        && payload.description.is_none()
-        && payload.assignee_id.is_none()
-    {
+    if payload.title.is_none() && payload.description.is_none() && payload.assignee_id.is_none() {
         return (
             StatusCode::BAD_REQUEST,
             Json(ApiMessage {
@@ -479,7 +399,6 @@ async fn update_task_handler(
             .into_response();
     }
 
-    
     let task = match get_task_by_id(&state.pool, task_id).await {
         Ok(Some(task)) => task,
         Ok(None) => {
@@ -494,22 +413,12 @@ async fn update_task_handler(
         Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
 
-    
     let allowed = if claims.role == "admin" {
         true
     } else if claims.role == "manager" {
-        match query_scalar::<_, bool>(
-            "SELECT EXISTS(
-                SELECT 1 FROM projects
-                WHERE id = ? AND owner_id = ?
-            )",
-        )
-        .bind(task.project_id)
-        .bind(user_id)
-        .fetch_one(&state.pool)
-        .await
-        {
-            Ok(value) => value,
+        match get_project_owner_id(&state.pool, task.project_id).await {
+            Ok(Some(owner_id)) => owner_id == user_id,
+            Ok(None) => false,
             Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         }
     } else {
@@ -526,19 +435,8 @@ async fn update_task_handler(
             .into_response();
     }
 
-    
     if let Some(assignee_id) = payload.assignee_id {
-        let is_member = match query_scalar::<_, bool>(
-            "SELECT EXISTS(
-                SELECT 1 FROM projectmember
-                WHERE project_id = ? AND user_id = ?
-            )",
-        )
-        .bind(task.project_id)
-        .bind(assignee_id)
-        .fetch_one(&state.pool)
-        .await
-        {
+        let is_member = match is_project_member(&state.pool, task.project_id, assignee_id).await {
             Ok(value) => value,
             Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         };
@@ -554,7 +452,6 @@ async fn update_task_handler(
         }
     }
 
-    
     let title = payload.title.as_deref().map(str::trim);
 
     match update_task(
@@ -586,7 +483,6 @@ async fn update_task_status_handler(
     headers: HeaderMap,
     Json(payload): Json<UpdateTaskStatusRequest>,
 ) -> impl IntoResponse {
-    
     let claims = match authenticate(&headers, &state) {
         Ok(claims) => claims,
         Err(message) => {
@@ -605,7 +501,6 @@ async fn update_task_status_handler(
         Err(_) => return StatusCode::UNAUTHORIZED.into_response(),
     };
 
-    
     if !["todo", "in_progress", "done"].contains(&payload.status.as_str()) {
         return (
             StatusCode::BAD_REQUEST,
@@ -616,7 +511,6 @@ async fn update_task_status_handler(
             .into_response();
     }
 
-    
     let task = match get_task_by_id(&state.pool, task_id).await {
         Ok(Some(task)) => task,
         Ok(None) => {
@@ -630,27 +524,14 @@ async fn update_task_status_handler(
         }
         Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
-
-    
     let allowed = match claims.role.as_str() {
         "admin" => true,
 
-        "manager" => {
-            match query_scalar::<_, bool>(
-                "SELECT EXISTS(
-                    SELECT 1 FROM projects
-                    WHERE id = ? AND owner_id = ?
-                )",
-            )
-            .bind(task.project_id)
-            .bind(user_id)
-            .fetch_one(&state.pool)
-            .await
-            {
-                Ok(value) => value,
-                Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-            }
-        }
+        "manager" => match get_project_owner_id(&state.pool, task.project_id).await {
+            Ok(Some(owner_id)) => owner_id == user_id,
+            Ok(None) => false,
+            Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        },
 
         "member" => task.assignee_id == Some(user_id),
 
@@ -666,15 +547,7 @@ async fn update_task_status_handler(
         )
             .into_response();
     }
-
-    
-    match update_task_status(
-        &state.pool,
-        task_id,
-        &payload.status,
-    )
-    .await
-    {
+    match update_task_status(&state.pool, task_id, &payload.status).await {
         Ok(true) => (
             StatusCode::OK,
             Json(ApiMessage {
@@ -688,7 +561,6 @@ async fn update_task_status_handler(
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
-
 
 async fn delete_task_handler(
     State(state): State<AppState>,
@@ -722,18 +594,9 @@ async fn delete_task_handler(
     let allowed = if claims.role == "admin" {
         true
     } else if claims.role == "manager" {
-        match query_scalar::<_, bool>(
-            "SELECT EXISTS(
-                SELECT 1 FROM projects
-                WHERE id = ? AND owner_id = ?
-            )",
-        )
-        .bind(task.project_id)
-        .bind(user_id)
-        .fetch_one(&state.pool)
-        .await
-        {
-            Ok(value) => value,
+        match get_project_owner_id(&state.pool, task.project_id).await {
+            Ok(Some(owner_id)) => owner_id == user_id,
+            Ok(None) => false,
             Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         }
     } else {
@@ -758,12 +621,12 @@ async fn delete_task_handler(
 }
 
 pub fn project_tasks_routes() -> Router<AppState> {
-    Router::new()
-        .route("/{id}/tasks", get(list_tasks).post(create_task_handler))
+    Router::new().route("/{id}/tasks", get(list_tasks).post(create_task_handler))
 }
 
 pub fn task_routes() -> Router<AppState> {
     Router::new()
-        .route("/{id}",get(get_task_handler).patch(update_task_handler).delete(delete_task_handler),)
+        .route("/{id}", get(get_task_handler).patch(update_task_handler))
+        .route("{id}", delete(delete_task_handler))
         .route("/{id}/status", patch(update_task_status_handler))
 }

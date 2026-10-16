@@ -1,25 +1,19 @@
 use axum::{
-    Json,
-    Router, 
-    extract::{State,Query,Path}, 
-    http::{HeaderMap, StatusCode}, 
-    response::IntoResponse, 
-    routing::{get, post,delete},
+    Json, Router,
+    extract::{Path, Query, State},
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
+    routing::{delete, get, post},
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    AppState,
     auth_middleware::authenticate,
     database::projects::{
-        insert_project,
-        get_user_projects,
-        get_project_by_id,
-        update_project,
-        delete_project,
-        add_project_member,
-        remove_project_member,
+        add_project_member, delete_project, get_project_by_id, get_user_projects, insert_project,
+        remove_project_member, update_project,
     },
-    AppState,
 };
 
 #[derive(Deserialize)]
@@ -123,14 +117,7 @@ async fn create_project(
             .into_response();
     }
 
-    match insert_project(
-        &state.pool,
-        name,
-        request.description.as_deref(),
-        owner_id,
-    )
-    .await
-    {
+    match insert_project(&state.pool, name, request.description.as_deref(), owner_id).await {
         Ok(project_id) => (
             StatusCode::CREATED,
             Json(ProjectCreatedResponse {
@@ -149,7 +136,6 @@ async fn create_project(
             .into_response(),
     }
 }
-
 
 async fn list_projects(
     State(state): State<AppState>,
@@ -189,8 +175,7 @@ async fn list_projects(
         return (
             StatusCode::BAD_REQUEST,
             Json(ApiMessage {
-                message: "page must be positive and limit must be between 1 and 100"
-                    .to_string(),
+                message: "page must be positive and limit must be between 1 and 100".to_string(),
             }),
         )
             .into_response();
@@ -209,15 +194,7 @@ async fn list_projects(
         }
     };
 
-    match get_user_projects(
-        &state.pool,
-        user_id,
-        &claims.role,
-        limit,
-        offset,
-    )
-    .await
-    {
+    match get_user_projects(&state.pool, user_id, &claims.role, limit, offset).await {
         Ok(projects) => (
             StatusCode::OK,
             Json(ProjectListResponse {
@@ -386,9 +363,7 @@ async fn edit_project(
         }
     };
 
-    if claims.role != "admin"
-        && !(claims.role == "manager" && project.owner_id == user_id)
-    {
+    if claims.role != "admin" && !(claims.role == "manager" && project.owner_id == user_id) {
         return (
             StatusCode::FORBIDDEN,
             Json(ApiMessage {
@@ -432,14 +407,7 @@ async fn edit_project(
         None => project.description.as_deref(),
     };
 
-    match update_project(
-        &state.pool,
-        project_id,
-        name,
-        description,
-    )
-    .await
-    {
+    match update_project(&state.pool, project_id, name, description).await {
         Ok(true) => (
             StatusCode::OK,
             Json(ApiMessage {
@@ -519,9 +487,7 @@ async fn remove_project(
         }
     };
 
-    if claims.role != "admin"
-        && !(claims.role == "manager" && project.owner_id == user_id)
-    {
+    if claims.role != "admin" && !(claims.role == "manager" && project.owner_id == user_id) {
         return (
             StatusCode::FORBIDDEN,
             Json(ApiMessage {
@@ -604,8 +570,7 @@ async fn add_member(
         }
     };
 
-    if claims.role != "admin"
-        && !(claims.role == "manager" && project.owner_id == current_user_id)
+    if claims.role != "admin" && !(claims.role == "manager" && project.owner_id == current_user_id)
     {
         return (
             StatusCode::FORBIDDEN,
@@ -626,12 +591,11 @@ async fn add_member(
             .into_response();
     }
 
-    let user_exists = sqlx::query_scalar::<_, i64>(
-        "SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)",
-    )
-    .bind(request.user_id)
-    .fetch_one(&state.pool)
-    .await;
+    let user_exists =
+        sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)")
+            .bind(request.user_id)
+            .fetch_one(&state.pool)
+            .await;
 
     match user_exists {
         Ok(0) => {
@@ -690,13 +654,7 @@ async fn add_member(
         }
     }
 
-    match add_project_member(
-        &state.pool,
-        project_id,
-        request.user_id,
-    )
-    .await
-    {
+    match add_project_member(&state.pool, project_id, request.user_id).await {
         Ok(true) => (
             StatusCode::CREATED,
             Json(ProjectMemberResponse {
@@ -747,8 +705,7 @@ async fn remove_member(
         return (
             StatusCode::FORBIDDEN,
             Json(ApiMessage {
-                message: "you do not have permission to remove project members"
-                    .to_string(),
+                message: "you do not have permission to remove project members".to_string(),
             }),
         )
             .into_response();
@@ -777,8 +734,7 @@ async fn remove_member(
         return (
             StatusCode::FORBIDDEN,
             Json(ApiMessage {
-                message: "you can only manage members of your own projects"
-                    .to_string(),
+                message: "you can only manage members of your own projects".to_string(),
             }),
         )
             .into_response();
@@ -788,8 +744,7 @@ async fn remove_member(
         return (
             StatusCode::CONFLICT,
             Json(ApiMessage {
-                message: "the project owner cannot be removed from the project"
-                    .to_string(),
+                message: "the project owner cannot be removed from the project".to_string(),
             }),
         )
             .into_response();
@@ -834,12 +789,13 @@ async fn remove_member(
     }
 }
 
-
 pub fn projects_routes() -> Router<AppState> {
     Router::new()
         .route("/", post(create_project).get(list_projects))
-        .route("/{id}", get(get_project).patch(edit_project).delete(remove_project))
+        .route(
+            "/{id}",
+            get(get_project).patch(edit_project).delete(remove_project),
+        )
         .route("/{id}/members", post(add_member))
-        .route("/{id}/members/{userId}",delete(remove_member),
-)   
+        .route("/{id}/members/{userId}", delete(remove_member))
 }

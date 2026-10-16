@@ -1,5 +1,5 @@
-use sqlx::SqlitePool;
 use sqlx::FromRow;
+use sqlx::SqlitePool;
 
 #[derive(Debug, FromRow, serde::Serialize)]
 pub struct Project {
@@ -10,7 +10,6 @@ pub struct Project {
     pub created_at: String,
 }
 
-
 pub async fn insert_project(
     pool: &SqlitePool,
     name: &str,
@@ -19,9 +18,7 @@ pub async fn insert_project(
 ) -> Result<i64, sqlx::Error> {
     let mut transaction = pool.begin().await?;
 
-    let created_at = chrono::Utc::now()
-        .format("%Y-%m-%d %H:%M:%S")
-        .to_string();
+    let created_at = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     let result = sqlx::query(
         r#"
@@ -95,7 +92,6 @@ pub async fn get_user_projects(
     Ok(projects)
 }
 
-
 pub async fn get_project_by_id(
     pool: &SqlitePool,
     project_id: i64,
@@ -113,7 +109,6 @@ pub async fn get_project_by_id(
 
     Ok(project)
 }
-
 
 pub async fn update_project(
     pool: &SqlitePool,
@@ -137,42 +132,31 @@ pub async fn update_project(
     Ok(result.rows_affected() > 0)
 }
 
-
-pub async fn delete_project(
-    pool: &SqlitePool,
-    project_id: i64,
-) -> Result<bool, sqlx::Error> {
+pub async fn delete_project(pool: &SqlitePool, project_id: i64) -> Result<bool, sqlx::Error> {
     let mut transaction = pool.begin().await?;
 
     // Remove project memberships first.
-    sqlx::query(
-        "DELETE FROM projectmember WHERE project_id = ?",
-    )
-    .bind(project_id)
-    .execute(&mut *transaction)
-    .await?;
+    sqlx::query("DELETE FROM projectmember WHERE project_id = ?")
+        .bind(project_id)
+        .execute(&mut *transaction)
+        .await?;
 
     // Remove tasks belonging to this project.
-    sqlx::query(
-        "DELETE FROM tasks WHERE project_id = ?",
-    )
-    .bind(project_id)
-    .execute(&mut *transaction)
-    .await?;
+    sqlx::query("DELETE FROM tasks WHERE project_id = ?")
+        .bind(project_id)
+        .execute(&mut *transaction)
+        .await?;
 
     // Finally, remove the project.
-    let result = sqlx::query(
-        "DELETE FROM projects WHERE id = ?",
-    )
-    .bind(project_id)
-    .execute(&mut *transaction)
-    .await?;
+    let result = sqlx::query("DELETE FROM projects WHERE id = ?")
+        .bind(project_id)
+        .execute(&mut *transaction)
+        .await?;
 
     transaction.commit().await?;
 
     Ok(result.rows_affected() > 0)
 }
-
 
 pub async fn add_project_member(
     pool: &SqlitePool,
@@ -193,8 +177,6 @@ pub async fn add_project_member(
     Ok(result.rows_affected() > 0)
 }
 
-
-
 pub async fn remove_project_member(
     pool: &sqlx::SqlitePool,
     project_id: i64,
@@ -210,4 +192,60 @@ pub async fn remove_project_member(
     .await?;
 
     Ok(result.rows_affected() > 0)
+}
+
+pub async fn get_project_owner_id(
+    pool: &SqlitePool,
+    project_id: i64,
+) -> Result<Option<i64>, sqlx::Error> {
+    sqlx::query_scalar::<_, i64>("SELECT owner_id FROM projects WHERE id = ?")
+        .bind(project_id)
+        .fetch_optional(pool)
+        .await
+}
+
+pub async fn is_project_member(
+    pool: &SqlitePool,
+    project_id: i64,
+    user_id: i64,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(
+            SELECT 1
+            FROM projectmember
+            WHERE project_id = ? AND user_id = ?
+        )",
+    )
+    .bind(project_id)
+    .bind(user_id)
+    .fetch_one(pool)
+    .await
+}
+
+pub async fn can_access_project(
+    pool: &SqlitePool,
+    project_id: i64,
+    user_id: i64,
+    role: &str,
+) -> Result<Option<bool>, sqlx::Error> {
+    let owner_id = match get_project_owner_id(pool, project_id).await? {
+        Some(id) => id,
+        None => return Ok(None),
+    };
+
+    if role == "admin" {
+        return Ok(Some(true));
+    }
+
+    if role == "manager" && owner_id == user_id {
+        return Ok(Some(true));
+    }
+
+    if role == "manager" || role == "member" {
+        let is_member = is_project_member(pool, project_id, user_id).await?;
+
+        return Ok(Some(is_member));
+    }
+
+    Ok(Some(false))
 }

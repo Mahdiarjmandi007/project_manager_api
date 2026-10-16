@@ -1,12 +1,11 @@
-
 #[path = "../database/database.rs"]
 pub mod database;
 
 pub mod auth;
-pub mod token;
+pub mod auth_middleware;
 pub mod routes;
 pub mod seed;
-pub mod auth_middleware;
+pub mod token;
 
 #[derive(Clone)]
 pub struct AppState {

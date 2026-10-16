@@ -1,18 +1,10 @@
-use axum::{
-    http::{
-        header::AUTHORIZATION,
-        HeaderMap,
-    },
-};
+use axum::http::{HeaderMap, header::AUTHORIZATION};
 
 use crate::{
-    token::{decode_access_token, Claims},
     AppState,
+    token::{Claims, decode_access_token},
 };
-pub fn authenticate(
-    headers: &HeaderMap,
-    state: &AppState,
-) -> Result<Claims, &'static str> {
+pub fn authenticate(headers: &HeaderMap, state: &AppState) -> Result<Claims, &'static str> {
     let authorization = headers
         .get(AUTHORIZATION)
         .ok_or("missing authorization header")?
@@ -24,11 +16,8 @@ pub fn authenticate(
         .filter(|token| !token.is_empty())
         .ok_or("invalid authorization format")?;
 
-    let claims = decode_access_token(
-        access_token,
-        &state.jwt_secret,
-    )
-    .map_err(|_| "invalid or expired access token")?;
+    let claims = decode_access_token(access_token, &state.jwt_secret)
+        .map_err(|_| "invalid or expired access token")?;
 
     claims
         .sub

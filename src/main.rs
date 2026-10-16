@@ -1,15 +1,7 @@
-
-use project_manager_api::{
-    database,
-    routes,
-    seed,
-    AppState,
-};
+use project_manager_api::{AppState, database, routes, seed};
 
 use sqlx::sqlite::SqlitePoolOptions;
 use tokio::net::TcpListener;
-
-
 
 async fn create_pool() -> Result<sqlx::SqlitePool, sqlx::Error> {
     SqlitePoolOptions::new()
@@ -26,7 +18,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match args.get(1).map(String::as_str) {
         Some("reset-db") => {
-            
             let db_path = "database/project_management.db";
 
             match std::fs::remove_file(db_path) {
@@ -37,7 +28,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Err(error) => return Err(error.into()),
             }
 
-            
             let pool = create_pool().await?;
             database::create_all_tables(&pool).await?;
             pool.close().await;
@@ -67,10 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             database::create_all_tables(&pool).await?;
 
-            let state = AppState {
-                pool,
-                jwt_secret,
-            };
+            let state = AppState { pool, jwt_secret };
 
             let app = routes::create_router(state);
 

@@ -1,9 +1,9 @@
 use sqlx::SqlitePool;
 
-pub mod users;
-pub mod refresh_tokens;
 pub mod projects;
+pub mod refresh_tokens;
 pub mod tasks;
+pub mod users;
 pub async fn create_users_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
@@ -22,9 +22,9 @@ pub async fn create_users_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     .await?;
 
     Ok(())
-    }
+}
 
-    pub async fn create_projects_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+pub async fn create_projects_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS projects (
@@ -43,10 +43,9 @@ pub async fn create_users_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     .await?;
 
     Ok(())
-    }
+}
 
-
-    pub async fn create_projectmember_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+pub async fn create_projectmember_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS projectmember (
@@ -65,9 +64,9 @@ pub async fn create_users_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     .await?;
 
     Ok(())
-    }
+}
 
-    pub async fn create_tasks_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+pub async fn create_tasks_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS tasks (
@@ -76,7 +75,7 @@ pub async fn create_users_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             title TEXT NOT NULL,
             description TEXT,
             status TEXT NOT NULL DEFAULT 'todo',
-            assignee_id INTEGER NOT NULL,
+            assignee_id INTEGER ,
             created_by INTEGER NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
@@ -96,9 +95,9 @@ pub async fn create_users_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     .await?;
 
     Ok(())
-    }
+}
 
-    pub async fn create_refresh_token_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+pub async fn create_refresh_token_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS refresh_token (
@@ -122,11 +121,9 @@ pub async fn create_users_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     .await?;
 
     Ok(())
-    }
+}
 
-    pub async fn create_all_tables(
-    pool: &SqlitePool,
-) -> Result<(), sqlx::Error> {
+pub async fn create_all_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     create_users_table(pool).await?;
     create_projects_table(pool).await?;
     create_projectmember_table(pool).await?;

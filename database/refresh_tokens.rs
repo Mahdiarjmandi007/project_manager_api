@@ -1,4 +1,3 @@
-
 use sqlx::SqlitePool;
 
 pub async fn insert_refresh_token(
@@ -29,7 +28,6 @@ pub async fn insert_refresh_token(
     Ok(())
 }
 
-
 pub async fn is_refresh_token_valid(
     pool: &SqlitePool,
     token_hash: &str,
@@ -54,7 +52,6 @@ pub async fn is_refresh_token_valid(
     Ok(is_valid)
 }
 
-
 pub async fn revoke_refresh_token(
     pool: &SqlitePool,
     token_hash: &str,
@@ -75,4 +72,3 @@ pub async fn revoke_refresh_token(
 
     Ok(result.rows_affected() > 0)
 }
-

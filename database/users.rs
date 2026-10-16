@@ -1,9 +1,5 @@
-
-
-use sqlx::{FromRow, SqlitePool};
 use chrono;
-
-
+use sqlx::{FromRow, SqlitePool};
 
 #[derive(Debug, FromRow)]
 pub struct User {
@@ -19,9 +15,9 @@ pub struct User {
 pub async fn find_user_by_email(
     pool: &SqlitePool,
     email: &str,
-)->Result<Option<User>,sqlx::Error>{
-    let user=sqlx::query_as::<_,User>(
-    r#"
+) -> Result<Option<User>, sqlx::Error> {
+    let user = sqlx::query_as::<_, User>(
+        r#"
     SELECT 
         id,
         email,
@@ -32,19 +28,16 @@ pub async fn find_user_by_email(
         created_at
     FROM users
     WHERE email=?
-    "#,    
+    "#,
     )
     .bind(email)
     .fetch_optional(pool)
     .await?;
     Ok(user)
 }
-pub async fn find_user_by_id(
-    pool: &SqlitePool,
-    user_id: i64,
-)->Result<Option<User>,sqlx::Error>{
-    let user=sqlx::query_as::<_,User>(
-    r#"
+pub async fn find_user_by_id(pool: &SqlitePool, user_id: i64) -> Result<Option<User>, sqlx::Error> {
+    let user = sqlx::query_as::<_, User>(
+        r#"
     SELECT 
         id,
         email,
@@ -55,7 +48,7 @@ pub async fn find_user_by_id(
         created_at
     FROM users
     WHERE id=?
-    "#,    
+    "#,
     )
     .bind(user_id)
     .fetch_optional(pool)
@@ -66,7 +59,7 @@ pub async fn get_users(
     pool: &SqlitePool,
     limit: i64,
     offset: i64,
-) -> Result<Vec<User>, sqlx::Error>{
+) -> Result<Vec<User>, sqlx::Error> {
     let users = sqlx::query_as::<_, User>(
         r#"
         SELECT
@@ -88,22 +81,19 @@ pub async fn get_users(
     .await?;
 
     Ok(users)
-
 }
 pub async fn change_user_role(
     pool: &SqlitePool,
     user_id: i64,
     role: &str,
-) -> Result<(),sqlx::Error>{
-    sqlx::query(
-        "UPDATE users SET role = ? WHERE id = ?"
-    )
-    .bind(role)
-    .bind(user_id)
-    .execute(pool)
-    .await?;
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE users SET role = ? WHERE id = ?")
+        .bind(role)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
 
-    Ok(())    
+    Ok(())
 }
 
 pub async fn change_user_status(
@@ -111,13 +101,11 @@ pub async fn change_user_status(
     user_id: i64,
     is_active: &bool,
 ) -> Result<bool, sqlx::Error> {
-    let result = sqlx::query(
-        "UPDATE users SET is_active = ? WHERE id = ?"
-    )
-    .bind(is_active)
-    .bind(user_id)
-    .execute(pool)
-    .await?;
+    let result = sqlx::query("UPDATE users SET is_active = ? WHERE id = ?")
+        .bind(is_active)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
 
     Ok(result.rows_affected() > 0)
 }
@@ -127,10 +115,8 @@ pub async fn create_user(
     email: &str,
     password_hash: &str,
     fullname: &str,
-)->Result<(),sqlx::Error>{
-    
-    let created_at = chrono::Local::now()
-    .format("%Y-%m-%d %H:%M:%S").to_string();
+) -> Result<(), sqlx::Error> {
+    let created_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     sqlx::query(
         r#"
@@ -158,14 +144,13 @@ pub async fn create_admin(
     email: &str,
     password_hash: &str,
     fullname: &str,
-) -> Result<(),sqlx::Error>{
-    let exist_user=find_user_by_email(pool, email).await?;
+) -> Result<(), sqlx::Error> {
+    let exist_user = find_user_by_email(pool, email).await?;
 
-    if exist_user.is_some(){
+    if exist_user.is_some() {
         return Ok(());
     }
-     let created_at = chrono::Local::now()
-    .format("%Y-%m-%d %H:%M:%S").to_string();   
+    let created_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     sqlx::query(
         r#"
@@ -187,7 +172,6 @@ pub async fn create_admin(
     .await?;
 
     Ok(())
-
 }
 
 #[cfg(test)]
@@ -219,21 +203,13 @@ mod tests {
         .await
         .unwrap();
 
-        create_user(
-            &pool,
-            "mahdi@example.com",
-            "test_hash",
-            "Mahdi Arjmandi",
-        )
-        .await
-        .unwrap();
+        create_user(&pool, "mahdi@example.com", "test_hash", "Mahdi Arjmandi")
+            .await
+            .unwrap();
 
-        let user = find_user_by_email(
-            &pool,
-            "mahdi@example.com",
-        )
-        .await
-        .unwrap();
+        let user = find_user_by_email(&pool, "mahdi@example.com")
+            .await
+            .unwrap();
 
         assert!(user.is_some());
 

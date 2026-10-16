@@ -1,21 +1,20 @@
 use axum::{
-    extract::{Query, State,Path},
-    http::{header::AUTHORIZATION, HeaderMap, StatusCode},
+    Json, Router,
+    extract::{Path, Query, State},
+    http::{HeaderMap, StatusCode, header::AUTHORIZATION},
     response::IntoResponse,
-    routing::{get, post,put,patch},
-    Json,
-    Router,
+    routing::{get, patch, post, put},
 };
 
-use serde::{Deserialize, Serialize};
 use crate::{
-    database::users::{find_user_by_id, get_users,change_user_role,change_user_status},
-    token::decode_access_token,
     AppState,
+    database::users::{change_user_role, change_user_status, find_user_by_id, get_users},
+    token::decode_access_token,
 };
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize)]
-struct ApiMessage{
+struct ApiMessage {
     message: String,
 }
 
@@ -67,7 +66,7 @@ pub async fn list_users(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(pagination): Query<Pagination>,
-) -> impl IntoResponse{
+) -> impl IntoResponse {
     let authorization = match headers.get("Authorization") {
         Some(value) => value,
         None => {
@@ -107,10 +106,7 @@ pub async fn list_users(
         }
     };
 
-    let claims = match decode_access_token(
-        access_token,
-        &state.jwt_secret,
-    ) {
+    let claims = match decode_access_token(access_token, &state.jwt_secret) {
         Ok(claims) => claims,
         Err(_) => {
             return (
@@ -171,7 +167,7 @@ pub async fn list_users(
         })
         .collect();
 
-    Json(users).into_response()        
+    Json(users).into_response()
 }
 
 pub async fn get_user(
@@ -218,10 +214,7 @@ pub async fn get_user(
         }
     };
 
-    let claims = match decode_access_token(
-        access_token,
-        &state.jwt_secret,
-    ) {
+    let claims = match decode_access_token(access_token, &state.jwt_secret) {
         Ok(claims) => claims,
         Err(_) => {
             return (
@@ -296,7 +289,7 @@ pub async fn update_user_role(
     Path(user_id): Path<i64>,
     headers: HeaderMap,
     Json(request): Json<ChangeRoleRequest>,
-) -> impl IntoResponse{
+) -> impl IntoResponse {
     let authorization = match headers.get("Authorization") {
         Some(value) => value,
         None => {
@@ -336,10 +329,7 @@ pub async fn update_user_role(
         }
     };
 
-    let claims = match decode_access_token(
-        access_token,
-        &state.jwt_secret,
-    ) {
+    let claims = match decode_access_token(access_token, &state.jwt_secret) {
         Ok(claims) => claims,
         Err(_) => {
             return (
@@ -352,7 +342,7 @@ pub async fn update_user_role(
         }
     };
 
-    if claims.role != "admin"  {
+    if claims.role != "admin" {
         return (
             StatusCode::FORBIDDEN,
             Json(ApiMessage {
@@ -360,48 +350,28 @@ pub async fn update_user_role(
             }),
         )
             .into_response();
-    } 
+    }
 
     let current_user_id = match claims.sub.parse::<i64>() {
         Ok(id) => id,
         Err(_) => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                "invalid user id in token",
-            )
-                .into_response();
+            return (StatusCode::UNAUTHORIZED, "invalid user id in token").into_response();
         }
     };
 
     if current_user_id == user_id {
-        return (
-            StatusCode::FORBIDDEN,
-            "you cannot change your own role",
-        )
-            .into_response();
+        return (StatusCode::FORBIDDEN, "you cannot change your own role").into_response();
     }
     if !["admin", "manager", "member"].contains(&request.role.as_str()) {
-        return (
-            StatusCode::BAD_REQUEST,
-            "invalid role",
-        )
-            .into_response();
+        return (StatusCode::BAD_REQUEST, "invalid role").into_response();
     }
     let target_user = match find_user_by_id(&state.pool, user_id).await {
         Ok(Some(user)) => user,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                "user not found",
-            )
-                .into_response();
+            return (StatusCode::NOT_FOUND, "user not found").into_response();
         }
         Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "database error",
-            )
-                .into_response();
+            return (StatusCode::INTERNAL_SERVER_ERROR, "database error").into_response();
         }
     };
     match change_user_role(&state.pool, user_id, &request.role).await {
@@ -421,8 +391,6 @@ pub async fn update_user_role(
         )
             .into_response(),
     }
-
-       
 }
 
 pub async fn update_user_status(
@@ -430,7 +398,7 @@ pub async fn update_user_status(
     Path(user_id): Path<i64>,
     headers: HeaderMap,
     Json(request): Json<ChangeStatusRequest>,
-) -> impl IntoResponse{
+) -> impl IntoResponse {
     let authorization = match headers.get("Authorization") {
         Some(value) => value,
         None => {
@@ -470,10 +438,7 @@ pub async fn update_user_status(
         }
     };
 
-    let claims = match decode_access_token(
-        access_token,
-        &state.jwt_secret,
-    ) {
+    let claims = match decode_access_token(access_token, &state.jwt_secret) {
         Ok(claims) => claims,
         Err(_) => {
             return (
@@ -486,7 +451,7 @@ pub async fn update_user_status(
         }
     };
 
-    if claims.role != "admin"  {
+    if claims.role != "admin" {
         return (
             StatusCode::FORBIDDEN,
             Json(ApiMessage {
@@ -498,32 +463,28 @@ pub async fn update_user_status(
     let current_user_id = match claims.sub.parse::<i64>() {
         Ok(id) => id,
         Err(_) => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                "invalid user id in token",
-            )
-                .into_response();
+            return (StatusCode::UNAUTHORIZED, "invalid user id in token").into_response();
         }
     };
 
     if current_user_id == user_id && !request.status {
-    return (
-        StatusCode::FORBIDDEN,
-        Json(ApiMessage {
-            message: "you cannot deactivate your own account".to_string(),
-        }),
-    )
-        .into_response();
-}
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ApiMessage {
+                message: "you cannot deactivate your own account".to_string(),
+            }),
+        )
+            .into_response();
+    }
 
-        let target_user = match find_user_by_id(&state.pool, user_id).await {
-            Ok(Some(user)) => user,
-            Ok(None) => {
-                return (
-                        StatusCode::NOT_FOUND,
-                        Json(ApiMessage {
-                        message: "user not found".to_string(),
-                    }),
+    let target_user = match find_user_by_id(&state.pool, user_id).await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ApiMessage {
+                    message: "user not found".to_string(),
+                }),
             )
                 .into_response();
         }
@@ -531,8 +492,8 @@ pub async fn update_user_status(
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ApiMessage {
-                        message: "database error".to_string(),
-                    }),
+                    message: "database error".to_string(),
+                }),
             )
                 .into_response();
         }
@@ -543,32 +504,31 @@ pub async fn update_user_status(
             Json(ChangeStatusResponse {
                 message: "user status updated successfully".to_string(),
                 user_id: target_user.id,
-        }),
+            }),
         )
             .into_response(),
 
-    Ok(false) => (
-        StatusCode::NOT_FOUND,
-        Json(ApiMessage {
-            message: "user not found".to_string(),
-        }),
-    )
-        .into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(ApiMessage {
+                message: "user not found".to_string(),
+            }),
+        )
+            .into_response(),
 
-    Err(_) => (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiMessage {
-            message: "failed to update user status".to_string(),
-        }),
-    )
-        .into_response(),
-}
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiMessage {
+                message: "failed to update user status".to_string(),
+            }),
+        )
+            .into_response(),
+    }
 }
 pub fn users_routes() -> Router<AppState> {
     Router::new()
-    .route("/", get(list_users))
-    .route("/{id}", get(get_user))
-    .route("/{id}/role", patch(update_user_role))
-    .route("/{id}/status", patch(update_user_status))
-
+        .route("/", get(list_users))
+        .route("/{id}", get(get_user))
+        .route("/{id}/role", patch(update_user_role))
+        .route("/{id}/status", patch(update_user_status))
 }

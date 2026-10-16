@@ -1,35 +1,21 @@
-use argon2::{
-    password_hash::{
-        PasswordHash,
-        PasswordHasher,
-        PasswordVerifier,
-        SaltString,
-    },
-    Argon2,
-};
-use sqlx::{FromRow, SqlitePool};
-use rand_core::OsRng;
 use crate::token::{
-    create_access_token,
-    create_refresh_token,
-    decode_refresh_token,
-    hash_refresh_token};
-
-use crate::database::users::{
-    create_user,
-    find_user_by_email,
-    find_user_by_id,
-    User,
+    create_access_token, create_refresh_token, decode_refresh_token, hash_refresh_token,
 };
+use argon2::{
+    Argon2,
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+};
+use rand_core::OsRng;
+use sqlx::{FromRow, SqlitePool};
+
+use crate::database::users::{User, create_user, find_user_by_email, find_user_by_id};
 
 use crate::database::refresh_tokens::{
-    insert_refresh_token,
-    is_refresh_token_valid,
-    revoke_refresh_token,
+    insert_refresh_token, is_refresh_token_valid, revoke_refresh_token,
 };
 
 #[derive(Debug, FromRow)]
-pub struct Tokens{
+pub struct Tokens {
     pub access_token: String,
     pub refresh_token: String,
 }
@@ -48,9 +34,7 @@ pub enum RegisterError {
     Hash(argon2::password_hash::Error),
 }
 
-pub fn hash_password(
-    password: &str,
-) -> Result<String, argon2::password_hash::Error> {
+pub fn hash_password(password: &str) -> Result<String, argon2::password_hash::Error> {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
 
@@ -78,13 +62,10 @@ pub async fn register(
     password: &str,
     fullname: &str,
 ) -> Result<(), RegisterError> {
-    
-    
     if password.chars().count() < 8 {
         return Err(RegisterError::PasswordTooShort);
     }
 
-    
     let existing_user = find_user_by_email(pool, email)
         .await
         .map_err(RegisterError::Database)?;
@@ -93,18 +74,11 @@ pub async fn register(
         return Err(RegisterError::EmailAlreadyExists);
     }
 
-    let password_hash =
-        hash_password(password).map_err(RegisterError::Hash)?;
+    let password_hash = hash_password(password).map_err(RegisterError::Hash)?;
 
-    
-    create_user(
-        pool,
-        email,
-        &password_hash,
-        fullname,
-    )
-    .await
-    .map_err(RegisterError::Database)?;
+    create_user(pool, email, &password_hash, fullname)
+        .await
+        .map_err(RegisterError::Database)?;
 
     Ok(())
 }
@@ -114,68 +88,59 @@ pub async fn login(
     email: &str,
     password: &str,
     secret: &str,
-) -> Result<Option<Tokens> , RegisterError> {
+) -> Result<Option<Tokens>, RegisterError> {
     let user = find_user_by_email(pool, email)
         .await
         .map_err(RegisterError::Database)?;
-    if user.is_none(){
+    if user.is_none() {
         return Err(RegisterError::EmailNotFound);
     }
-    
-    let user = user.unwrap();
-    
-    let is_valid=verify_password(password, &user.password_hash).map_err(RegisterError::Hash)?;
 
-    if !is_valid{
+    let user = user.unwrap();
+
+    let is_valid = verify_password(password, &user.password_hash).map_err(RegisterError::Hash)?;
+
+    if !is_valid {
         return Err(RegisterError::InvalidPassword);
     }
-    let access_token = create_access_token(
-        user.id,
-        &user.role,
-        secret,
-    ).map_err(|_| RegisterError::TokenCreation)?;
+    let access_token = create_access_token(user.id, &user.role, secret)
+        .map_err(|_| RegisterError::TokenCreation)?;
 
-    let refresh_token = create_refresh_token(
-        user.id,
-        &user.role,
-        secret,
-    ).map_err(|_| RegisterError::TokenCreation)?;
-    let refresh_token_hash=hash_refresh_token(&refresh_token);
+    let refresh_token = create_refresh_token(user.id, &user.role, secret)
+        .map_err(|_| RegisterError::TokenCreation)?;
+    let refresh_token_hash = hash_refresh_token(&refresh_token);
 
     let now = chrono::Utc::now();
 
     let created_at = now.format("%Y-%m-%d %H:%M:%S").to_string();
 
     let expires_at = (now + chrono::Duration::days(7))
-        .format("%Y-%m-%d %H:%M:%S").to_string();
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
 
-    insert_refresh_token(
-        pool,
-        user.id,
-        &refresh_token_hash,
-        &expires_at,
-        &created_at,
-    ).await.map_err(RegisterError::Database)?;
-    
+    insert_refresh_token(pool, user.id, &refresh_token_hash, &expires_at, &created_at)
+        .await
+        .map_err(RegisterError::Database)?;
 
     Ok(Some(Tokens {
-    access_token,
-    refresh_token,
-}))
+        access_token,
+        refresh_token,
+    }))
 }
 
 pub async fn refresh(
     pool: &SqlitePool,
     old_refresh_token: &str,
     secret: &str,
-) -> Result<Tokens, RegisterError>{
-    let claims=decode_refresh_token(old_refresh_token, secret).map_err(|_| RegisterError::InvalidRefreshToken)?;
+) -> Result<Tokens, RegisterError> {
+    let claims = decode_refresh_token(old_refresh_token, secret)
+        .map_err(|_| RegisterError::InvalidRefreshToken)?;
     let user_id = claims
         .sub
         .parse::<i64>()
         .map_err(|_| RegisterError::InvalidRefreshToken)?;
 
-    let old_token_hash=hash_refresh_token(old_refresh_token);
+    let old_token_hash = hash_refresh_token(old_refresh_token);
 
     let now = chrono::Utc::now();
     let current_time = now.format("%Y-%m-%d %H:%M:%S").to_string();
@@ -217,16 +182,20 @@ pub async fn refresh(
     .map_err(RegisterError::Database)?
     .ok_or(RegisterError::InvalidRefreshToken)?;
 
-    if !user.is_active{
-        return Err(RegisterError::InactiveUser)
+    if !user.is_active {
+        return Err(RegisterError::InactiveUser);
     }
 
-    let access_token = create_access_token(user.id, &user.role, secret).map_err(|_| RegisterError::TokenCreation)?;
+    let access_token = create_access_token(user.id, &user.role, secret)
+        .map_err(|_| RegisterError::TokenCreation)?;
 
-    let refresh_token = create_refresh_token(user.id, &user.role, secret).map_err(|_| RegisterError::TokenCreation)?;
+    let refresh_token = create_refresh_token(user.id, &user.role, secret)
+        .map_err(|_| RegisterError::TokenCreation)?;
 
     let new_token_hash = hash_refresh_token(&refresh_token);
-    let expires_at = (now + chrono::Duration::days(7)).format("%Y-%m-%d %H:%M:%S").to_string();
+    let expires_at = (now + chrono::Duration::days(7))
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
 
     let result = sqlx::query(
         r#"
@@ -264,11 +233,7 @@ pub async fn refresh(
     .await
     .map_err(RegisterError::Database)?;
 
-    tx.commit()
-        .await
-        .map_err(RegisterError::Database)?;
-
-
+    tx.commit().await.map_err(RegisterError::Database)?;
 
     Ok(Tokens {
         access_token,
@@ -281,7 +246,6 @@ pub async fn logout(
     refresh_token: &str,
     secret: &str,
 ) -> Result<(), RegisterError> {
-    
     decode_refresh_token(refresh_token, secret).map_err(|_| RegisterError::InvalidRefreshToken)?;
 
     let token_hash = hash_refresh_token(refresh_token);
@@ -311,15 +275,14 @@ pub async fn logout(
     Ok(())
 }
 
-
 pub async fn change_password(
     pool: &SqlitePool,
     user_id: i64,
     current_password: &str,
     new_password: &str,
-) -> Result<(), RegisterError>{
-    if new_password.len() < 8{
-       return Err(RegisterError::PasswordTooShort);
+) -> Result<(), RegisterError> {
+    if new_password.len() < 8 {
+        return Err(RegisterError::PasswordTooShort);
     }
 
     let mut tx = pool.begin().await.map_err(RegisterError::Database)?;
@@ -337,16 +300,17 @@ pub async fn change_password(
     .map_err(RegisterError::Database)?
     .ok_or(RegisterError::UserNotFound)?;
 
-    if !user.is_active{
-        return Err(RegisterError::InactiveUser)
+    if !user.is_active {
+        return Err(RegisterError::InactiveUser);
     }
 
-    let is_valid=verify_password(current_password, &user.password_hash,).map_err(RegisterError::Hash)?;
-    if !is_valid{
+    let is_valid =
+        verify_password(current_password, &user.password_hash).map_err(RegisterError::Hash)?;
+    if !is_valid {
         return Err(RegisterError::InvalidPassword);
     }
 
-    let new_password_hash=hash_password(new_password).map_err(RegisterError::Hash)?;
+    let new_password_hash = hash_password(new_password).map_err(RegisterError::Hash)?;
 
     sqlx::query(
         r#"
@@ -377,10 +341,7 @@ pub async fn change_password(
     .await
     .map_err(RegisterError::Database)?;
 
-    tx.commit()
-        .await
-        .map_err(RegisterError::Database)?;
-
+    tx.commit().await.map_err(RegisterError::Database)?;
 
     Ok(())
 }
@@ -424,15 +385,15 @@ mod tests {
 
         assert!(!verify_password(wrong_password, &hash).unwrap());
     }
-#[tokio::test]
-async fn test_register_to_short_password() {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
+    #[tokio::test]
+    async fn test_register_to_short_password() {
+        let pool = SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
 
-    sqlx::query(
-        r#"
+        sqlx::query(
+            r#"
         CREATE TABLE users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT NOT NULL UNIQUE,
@@ -443,42 +404,28 @@ async fn test_register_to_short_password() {
             created_at TEXT NOT NULL
         )
         "#,
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    create_user(
-        &pool,
-        "mahdi@example.com",
-        "test_hash",
-        "Mahdi Arjmandi",
-    )
-    .await
-    .unwrap();
-
-    let result = register(
-        &pool,
-        "mahdi@.com",
-        "test",
-        "Mahdi",
-    )
-    .await;
-
-    assert!(matches!(
-        result,
-        Err(RegisterError::PasswordTooShort)
-    ));
-}
-#[tokio::test]
-async fn test_register_email_exist() {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
+        )
+        .execute(&pool)
         .await
         .unwrap();
 
-    sqlx::query(
-        r#"
+        create_user(&pool, "mahdi@example.com", "test_hash", "Mahdi Arjmandi")
+            .await
+            .unwrap();
+
+        let result = register(&pool, "mahdi@.com", "test", "Mahdi").await;
+
+        assert!(matches!(result, Err(RegisterError::PasswordTooShort)));
+    }
+    #[tokio::test]
+    async fn test_register_email_exist() {
+        let pool = SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        sqlx::query(
+            r#"
         CREATE TABLE users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT NOT NULL UNIQUE,
@@ -489,42 +436,28 @@ async fn test_register_email_exist() {
             created_at TEXT NOT NULL
         )
         "#,
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-    let password_hash = hash_password("correct_password").unwrap();
-    create_user(
-        &pool,
-        "mahdi@example.com",
-        &password_hash,
-        "Mahdi Arjmandi",
-    )
-    .await
-    .unwrap();
-    
-    let result = register(
-        &pool,
-        "mahdi@example.com",
-        "correct_password",
-        "Mahdi",
-    )
-    .await;
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let password_hash = hash_password("correct_password").unwrap();
+        create_user(&pool, "mahdi@example.com", &password_hash, "Mahdi Arjmandi")
+            .await
+            .unwrap();
 
-    assert!(matches!(
-        result,
-        Err(RegisterError::EmailAlreadyExists)
-    ));
-}
-#[tokio::test]
-async fn test_success_login(){
-    let pool = SqlitePoolOptions::new()
-    .connect("sqlite::memory:")
-    .await
-    .unwrap();
+        let result = register(&pool, "mahdi@example.com", "correct_password", "Mahdi").await;
 
-    sqlx::query(
-    r#"
+        assert!(matches!(result, Err(RegisterError::EmailAlreadyExists)));
+    }
+    #[tokio::test]
+    async fn test_success_login() {
+        let pool = SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        sqlx::query(
+            r#"
         CREATE TABLE refresh_token (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -534,9 +467,12 @@ async fn test_success_login(){
             revoked_at TEXT,
             FOREIGN KEY (user_id) REFERENCES users(id)
         )"#,
-    ).execute(&pool).await.unwrap();
-    sqlx::query(
-        r#"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"
         CREATE TABLE users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT NOT NULL UNIQUE,
@@ -546,92 +482,29 @@ async fn test_success_login(){
             is_active BOOLEAN NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         )"#,
-    ).execute(&pool).await.unwrap();
-
-    let password_hash = hash_password("correct_password").unwrap();
-    create_user(
-        &pool,
-        "mahdi@example.com",
-        &password_hash,
-        "Mahdi Arjmandi",
-    )
-    .await
-    .unwrap();
-    
-    let result= login(
-        &pool,
-        "mahdi@example.com",
-        "correct_password",
-        "test").await;
-    assert!(
-    result.is_ok(),
-    "Login failed: {:?}",result.unwrap_err());
-}
-
-#[tokio::test]
-async fn test_login_email_not_found(){
-    let pool = SqlitePoolOptions::new()
-    .connect("sqlite::memory:")
-    .await
-    .unwrap();
-    
-    sqlx::query(
-    r#"
-        CREATE TABLE refresh_tokens (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            token_hash TEXT NOT NULL UNIQUE,
-            expires_at TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            revoked_at TEXT,
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        )"#,
-    ).execute(&pool).await.unwrap();
-
-    sqlx::query(
-        r#"
-        CREATE TABLE users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL,
-            fullname TEXT NOT NULL,
-            role TEXT NOT NULL,
-            is_active BOOLEAN NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL
-        )"#,
-    ).execute(&pool).await.unwrap();
-
-    let password_hash = hash_password("correct_password").unwrap();
-    create_user(
-        &pool,
-        "mahdi@example.com",
-        &password_hash,
-        "Mahdi Arjmandi",
-    )
-    .await
-    .unwrap();
-    
-    let result= login(
-        &pool,
-        "mahdi@.com",
-        "correct_password",
-        "test").await;
-
-        assert!(matches!(
-        result,
-        Err(RegisterError::EmailNotFound)
-    ));
-}
-
-#[tokio::test]
-async fn test_login_invalid_password(){
-        let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
+        )
+        .execute(&pool)
         .await
         .unwrap();
 
-    sqlx::query(
-    r#"
+        let password_hash = hash_password("correct_password").unwrap();
+        create_user(&pool, "mahdi@example.com", &password_hash, "Mahdi Arjmandi")
+            .await
+            .unwrap();
+
+        let result = login(&pool, "mahdi@example.com", "correct_password", "test").await;
+        assert!(result.is_ok(), "Login failed: {:?}", result.unwrap_err());
+    }
+
+    #[tokio::test]
+    async fn test_login_email_not_found() {
+        let pool = SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        sqlx::query(
+            r#"
         CREATE TABLE refresh_tokens (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -641,9 +514,13 @@ async fn test_login_invalid_password(){
             revoked_at TEXT,
             FOREIGN KEY (user_id) REFERENCES users(id)
         )"#,
-    ).execute(&pool).await.unwrap();
-    sqlx::query(
-        r#"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"
         CREATE TABLE users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT NOT NULL UNIQUE,
@@ -653,27 +530,65 @@ async fn test_login_invalid_password(){
             is_active BOOLEAN NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         )"#,
-    ).execute(&pool).await.unwrap();
-    let password_hash = hash_password("correct_password").unwrap();
-    create_user(
-        &pool,
-        "mahdi@example.com",
-        &password_hash,
-        "Mahdi Arjmandi",
-    )
-    .await
-    .unwrap();
-    
-    let result= login(
-        &pool,
-        "mahdi@example.com",
-        "test",
-        "test").await;
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
-        assert!(matches!(
-        result,
-        Err(RegisterError::InvalidPassword)
-    ));
-}
+        let password_hash = hash_password("correct_password").unwrap();
+        create_user(&pool, "mahdi@example.com", &password_hash, "Mahdi Arjmandi")
+            .await
+            .unwrap();
 
+        let result = login(&pool, "mahdi@.com", "correct_password", "test").await;
+
+        assert!(matches!(result, Err(RegisterError::EmailNotFound)));
+    }
+
+    #[tokio::test]
+    async fn test_login_invalid_password() {
+        let pool = SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        sqlx::query(
+            r#"
+        CREATE TABLE refresh_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            expires_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            revoked_at TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            fullname TEXT NOT NULL,
+            role TEXT NOT NULL,
+            is_active BOOLEAN NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let password_hash = hash_password("correct_password").unwrap();
+        create_user(&pool, "mahdi@example.com", &password_hash, "Mahdi Arjmandi")
+            .await
+            .unwrap();
+
+        let result = login(&pool, "mahdi@example.com", "test", "test").await;
+
+        assert!(matches!(result, Err(RegisterError::InvalidPassword)));
+    }
 }

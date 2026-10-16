@@ -22,9 +22,7 @@ pub async fn create_task(
     assignee_id: Option<i64>,
     created_by: i64,
 ) -> Result<i64, sqlx::Error> {
-    let created_at = chrono::Utc::now()
-        .format("%Y-%m-%d %H:%M:%S")
-        .to_string();
+    let created_at = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     let result = sqlx::query(
         r#"
@@ -54,10 +52,7 @@ pub async fn create_task(
     Ok(result.last_insert_rowid())
 }
 
-pub async fn get_task_by_id(
-    pool: &SqlitePool,
-    task_id: i64,
-) -> Result<Option<Task>, sqlx::Error> {
+pub async fn get_task_by_id(pool: &SqlitePool, task_id: i64) -> Result<Option<Task>, sqlx::Error> {
     sqlx::query_as::<_, Task>(
         r#"
         SELECT
@@ -114,8 +109,7 @@ pub async fn get_project_tasks(
 
     query.push_str(" ORDER BY id DESC LIMIT ? OFFSET ?");
 
-    let mut request = sqlx::query_as::<_, Task>(&query)
-        .bind(project_id);
+    let mut request = sqlx::query_as::<_, Task>(&query).bind(project_id);
 
     if let Some(status) = status {
         request = request.bind(status);
@@ -125,11 +119,7 @@ pub async fn get_project_tasks(
         request = request.bind(assignee_id);
     }
 
-    request
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool)
-        .await
+    request.bind(limit).bind(offset).fetch_all(pool).await
 }
 
 pub async fn update_task(
@@ -139,9 +129,7 @@ pub async fn update_task(
     description: Option<&str>,
     assignee_id: Option<i64>,
 ) -> Result<bool, sqlx::Error> {
-    let updated_at = chrono::Utc::now()
-        .format("%Y-%m-%d %H:%M:%S")
-        .to_string();
+    let updated_at = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     let result = sqlx::query(
         r#"
@@ -166,15 +154,12 @@ pub async fn update_task(
     Ok(result.rows_affected() > 0)
 }
 
-
 pub async fn update_task_status(
     pool: &SqlitePool,
     task_id: i64,
     status: &str,
 ) -> Result<bool, sqlx::Error> {
-    let updated_at = chrono::Utc::now()
-        .format("%Y-%m-%d %H:%M:%S")
-        .to_string();
+    let updated_at = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     let result = sqlx::query(
         r#"
@@ -194,18 +179,11 @@ pub async fn update_task_status(
     Ok(result.rows_affected() > 0)
 }
 
-
-pub async fn delete_task(
-    pool: &SqlitePool,
-    task_id: i64,
-) -> Result<bool, sqlx::Error> {
-    let result = sqlx::query(
-        "DELETE FROM tasks WHERE id = ?"
-    )
-    .bind(task_id)
-    .execute(pool)
-    .await?;
+pub async fn delete_task(pool: &SqlitePool, task_id: i64) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query("DELETE FROM tasks WHERE id = ?")
+        .bind(task_id)
+        .execute(pool)
+        .await?;
 
     Ok(result.rows_affected() > 0)
 }
-
