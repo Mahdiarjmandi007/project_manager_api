@@ -90,6 +90,37 @@ pub async fn get_users(
     Ok(users)
 
 }
+pub async fn change_user_role(
+    pool: &SqlitePool,
+    user_id: i64,
+    role: &str,
+) -> Result<(),sqlx::Error>{
+    sqlx::query(
+        "UPDATE users SET role = ? WHERE id = ?"
+    )
+    .bind(role)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())    
+}
+
+pub async fn change_user_status(
+    pool: &SqlitePool,
+    user_id: i64,
+    is_active: &bool,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE users SET is_active = ? WHERE id = ?"
+    )
+    .bind(is_active)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
 
 pub async fn create_user(
     pool: &SqlitePool,
