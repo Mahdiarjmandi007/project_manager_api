@@ -4,7 +4,7 @@ use axum::{
     extract::{State,Query,Path}, 
     http::{HeaderMap, StatusCode}, 
     response::IntoResponse, 
-    routing::{get, post,},
+    routing::{get, post,delete},
 };
 use serde::{Deserialize, Serialize};
 
@@ -14,10 +14,24 @@ use crate::{
         insert_project,
         get_user_projects,
         get_project_by_id,
-        update_project
+        update_project,
+        delete_project,
+        add_project_member,
     },
     AppState,
 };
+
+#[derive(Deserialize)]
+struct AddProjectMemberRequest {
+    user_id: i64,
+}
+
+#[derive(Serialize)]
+struct ProjectMemberResponse {
+    message: String,
+    project_id: i64,
+    user_id: i64,
+}
 
 #[derive(Deserialize)]
 struct UpdateProjectRequest {
@@ -452,8 +466,270 @@ async fn edit_project(
 }
 
 
+
+async fn remove_project(
+    State(state): State<AppState>,
+    Path(project_id): Path<i64>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let claims = match authenticate(&headers, &state) {
+        Ok(claims) => claims,
+        Err(message) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: message.to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let user_id = match claims.sub.parse::<i64>() {
+        Ok(id) => id,
+        Err(_) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: "invalid user id in token".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let project = match get_project_by_id(&state.pool, project_id).await {
+        Ok(Some(project)) => project,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ApiMessage {
+                    message: "project not found".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiMessage {
+                    message: "failed to fetch project".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    if claims.role != "admin"
+        && !(claims.role == "manager" && project.owner_id == user_id)
+    {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ApiMessage {
+                message: "you do not have permission to delete this project".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    match delete_project(&state.pool, project_id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(ApiMessage {
+                message: "project not found".to_string(),
+            }),
+        )
+            .into_response(),
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiMessage {
+                message: "failed to delete project".to_string(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+async fn add_member(
+    State(state): State<AppState>,
+    Path(project_id): Path<i64>,
+    headers: HeaderMap,
+    Json(request): Json<AddProjectMemberRequest>,
+) -> impl IntoResponse {
+    let claims = match authenticate(&headers, &state) {
+        Ok(claims) => claims,
+        Err(message) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: message.to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let current_user_id = match claims.sub.parse::<i64>() {
+        Ok(id) => id,
+        Err(_) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: "invalid user id in token".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let project = match get_project_by_id(&state.pool, project_id).await {
+        Ok(Some(project)) => project,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ApiMessage {
+                    message: "project not found".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiMessage {
+                    message: "failed to fetch project".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    if claims.role != "admin"
+        && !(claims.role == "manager" && project.owner_id == current_user_id)
+    {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ApiMessage {
+                message: "you do not have permission to add members".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    if request.user_id <= 0 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiMessage {
+                message: "invalid user id".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    let user_exists = sqlx::query_scalar::<_, i64>(
+        "SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)",
+    )
+    .bind(request.user_id)
+    .fetch_one(&state.pool)
+    .await;
+
+    match user_exists {
+        Ok(0) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ApiMessage {
+                    message: "user not found".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Ok(_) => {}
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiMessage {
+                    message: "failed to check user".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    }
+
+    let already_member = sqlx::query_scalar::<_, i64>(
+        r#"
+        SELECT EXISTS(
+            SELECT 1 FROM projectmember
+            WHERE project_id = ? AND user_id = ?
+        )
+        "#,
+    )
+    .bind(project_id)
+    .bind(request.user_id)
+    .fetch_one(&state.pool)
+    .await;
+
+    match already_member {
+        Ok(1) => {
+            return (
+                StatusCode::CONFLICT,
+                Json(ApiMessage {
+                    message: "user is already a project member".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Ok(_) => {}
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiMessage {
+                    message: "failed to check project membership".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    }
+
+    match add_project_member(
+        &state.pool,
+        project_id,
+        request.user_id,
+    )
+    .await
+    {
+        Ok(true) => (
+            StatusCode::CREATED,
+            Json(ProjectMemberResponse {
+                message: "project member added successfully".to_string(),
+                project_id,
+                user_id: request.user_id,
+            }),
+        )
+            .into_response(),
+
+        Ok(false) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiMessage {
+                message: "failed to add project member".to_string(),
+            }),
+        )
+            .into_response(),
+
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiMessage {
+                message: "failed to add project member".to_string(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+
 pub fn projects_routes() -> Router<AppState> {
     Router::new()
         .route("/", post(create_project).get(list_projects))
-        .route("/{id}", get(get_project).patch(edit_project))   
+        .route("/{id}", get(get_project).patch(edit_project).delete(remove_project))
+        .route("/{id}/members", post(add_member))   
 }

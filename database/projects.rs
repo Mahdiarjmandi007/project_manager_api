@@ -137,3 +137,60 @@ pub async fn update_project(
     Ok(result.rows_affected() > 0)
 }
 
+
+pub async fn delete_project(
+    pool: &SqlitePool,
+    project_id: i64,
+) -> Result<bool, sqlx::Error> {
+    let mut transaction = pool.begin().await?;
+
+    // Remove project memberships first.
+    sqlx::query(
+        "DELETE FROM projectmember WHERE project_id = ?",
+    )
+    .bind(project_id)
+    .execute(&mut *transaction)
+    .await?;
+
+    // Remove tasks belonging to this project.
+    sqlx::query(
+        "DELETE FROM tasks WHERE project_id = ?",
+    )
+    .bind(project_id)
+    .execute(&mut *transaction)
+    .await?;
+
+    // Finally, remove the project.
+    let result = sqlx::query(
+        "DELETE FROM projects WHERE id = ?",
+    )
+    .bind(project_id)
+    .execute(&mut *transaction)
+    .await?;
+
+    transaction.commit().await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+
+pub async fn add_project_member(
+    pool: &SqlitePool,
+    project_id: i64,
+    user_id: i64,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        INSERT INTO projectmember (project_id, user_id)
+        VALUES (?, ?)
+        "#,
+    )
+    .bind(project_id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+
