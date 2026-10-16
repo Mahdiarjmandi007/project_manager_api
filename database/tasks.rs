@@ -131,3 +131,37 @@ pub async fn get_project_tasks(
         .fetch_all(pool)
         .await
 }
+
+pub async fn update_task(
+    pool: &SqlitePool,
+    task_id: i64,
+    title: Option<&str>,
+    description: Option<&str>,
+    assignee_id: Option<i64>,
+) -> Result<bool, sqlx::Error> {
+    let updated_at = chrono::Utc::now()
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
+
+    let result = sqlx::query(
+        r#"
+        UPDATE tasks
+        SET
+            title = COALESCE(?, title),
+            description = COALESCE(?, description),
+            assignee_id = COALESCE(?, assignee_id),
+            updated_at = ?,
+            update_count = update_count + 1
+        WHERE id = ?
+        "#,
+    )
+    .bind(title)
+    .bind(description)
+    .bind(assignee_id)
+    .bind(&updated_at)
+    .bind(task_id)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}

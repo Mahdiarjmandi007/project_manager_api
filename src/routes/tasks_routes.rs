@@ -14,6 +14,7 @@ use crate::{
     create_task as insert_task,
     get_project_tasks,
     get_task_by_id,
+    update_task,
     },
     AppState,
 };
@@ -41,6 +42,12 @@ struct TaskListResponse {
 #[derive(Deserialize)]
 struct CreateTaskRequest {
     title: String,
+    description: Option<String>,
+    assignee_id: Option<i64>,
+}
+#[derive(Deserialize)]
+struct UpdateTaskRequest {
+    title: Option<String>,
     description: Option<String>,
     assignee_id: Option<i64>,
 }
@@ -407,6 +414,160 @@ async fn get_task_handler(
     }
 }
 
+async fn update_task_handler(
+    State(state): State<AppState>,
+    Path(task_id): Path<i64>,
+    headers: HeaderMap,
+    Json(payload): Json<UpdateTaskRequest>,
+) -> impl IntoResponse {
+    
+    let claims = match authenticate(&headers, &state) {
+        Ok(claims) => claims,
+        Err(message) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: message.to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let user_id = match claims.sub.parse::<i64>() {
+        Ok(id) => id,
+        Err(_) => {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+    };
+
+    
+    if let Some(title) = &payload.title {
+        if title.trim().is_empty() {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ApiMessage {
+                    message: "Task title cannot be empty".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    }
+
+    
+    if payload.title.is_none()
+        && payload.description.is_none()
+        && payload.assignee_id.is_none()
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiMessage {
+                message: "At least one field must be provided".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    
+    let task = match get_task_by_id(&state.pool, task_id).await {
+        Ok(Some(task)) => task,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ApiMessage {
+                    message: "Task not found".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+
+    
+    let allowed = if claims.role == "admin" {
+        true
+    } else if claims.role == "manager" {
+        match query_scalar::<_, bool>(
+            "SELECT EXISTS(
+                SELECT 1 FROM projects
+                WHERE id = ? AND owner_id = ?
+            )",
+        )
+        .bind(task.project_id)
+        .bind(user_id)
+        .fetch_one(&state.pool)
+        .await
+        {
+            Ok(value) => value,
+            Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        }
+    } else {
+        false
+    };
+
+    if !allowed {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ApiMessage {
+                message: "You are not allowed to edit this task".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    
+    if let Some(assignee_id) = payload.assignee_id {
+        let is_member = match query_scalar::<_, bool>(
+            "SELECT EXISTS(
+                SELECT 1 FROM projectmember
+                WHERE project_id = ? AND user_id = ?
+            )",
+        )
+        .bind(task.project_id)
+        .bind(assignee_id)
+        .fetch_one(&state.pool)
+        .await
+        {
+            Ok(value) => value,
+            Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        };
+
+        if !is_member {
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(ApiMessage {
+                    message: "Assignee must be a member of the project".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    }
+
+    
+    let title = payload.title.as_deref().map(str::trim);
+
+    match update_task(
+        &state.pool,
+        task_id,
+        title,
+        payload.description.as_deref(),
+        payload.assignee_id,
+    )
+    .await
+    {
+        Ok(true) => (
+            StatusCode::OK,
+            Json(ApiMessage {
+                message: "Task updated successfully".to_string(),
+            }),
+        )
+            .into_response(),
+
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
 pub fn project_tasks_routes() -> Router<AppState> {
     Router::new()
         .route("/{id}/tasks", get(list_tasks).post(create_task_handler))
@@ -414,5 +575,5 @@ pub fn project_tasks_routes() -> Router<AppState> {
 
 pub fn task_routes() -> Router<AppState> {
     Router::new()
-        .route("/{id}", get(get_task_handler))
+        .route("/{id}",get(get_task_handler).patch(update_task_handler),)
 }
