@@ -113,3 +113,27 @@ pub async fn get_project_by_id(
 
     Ok(project)
 }
+
+
+pub async fn update_project(
+    pool: &SqlitePool,
+    project_id: i64,
+    name: &str,
+    description: Option<&str>,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        UPDATE projects
+        SET name = ?, description = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(name)
+    .bind(description)
+    .bind(project_id)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+

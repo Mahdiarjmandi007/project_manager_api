@@ -13,10 +13,17 @@ use crate::{
     database::projects::{
         insert_project,
         get_user_projects,
-        get_project_by_id
+        get_project_by_id,
+        update_project
     },
     AppState,
 };
+
+#[derive(Deserialize)]
+struct UpdateProjectRequest {
+    name: Option<String>,
+    description: Option<String>,
+}
 
 #[derive(Deserialize)]
 struct ProjectListQuery {
@@ -310,11 +317,143 @@ async fn get_project(
     (StatusCode::OK, Json(project)).into_response()
 }
 
+async fn edit_project(
+    State(state): State<AppState>,
+    Path(project_id): Path<i64>,
+    headers: HeaderMap,
+    Json(request): Json<UpdateProjectRequest>,
+) -> impl IntoResponse {
+    let claims = match authenticate(&headers, &state) {
+        Ok(claims) => claims,
+        Err(message) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: message.to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let user_id = match claims.sub.parse::<i64>() {
+        Ok(id) => id,
+        Err(_) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: "invalid user id in token".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let project = match get_project_by_id(&state.pool, project_id).await {
+        Ok(Some(project)) => project,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ApiMessage {
+                    message: "project not found".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiMessage {
+                    message: "failed to fetch project".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    if claims.role != "admin"
+        && !(claims.role == "manager" && project.owner_id == user_id)
+    {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ApiMessage {
+                message: "you do not have permission to edit this project".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    if request.name.is_none() && request.description.is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiMessage {
+                message: "at least one field must be provided".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    let name = match request.name.as_deref() {
+        Some(value) => {
+            let trimmed = value.trim();
+
+            if trimmed.is_empty() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiMessage {
+                        message: "project name cannot be empty".to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+
+            trimmed
+        }
+        None => project.name.as_str(),
+    };
+
+    let description = match request.description.as_ref() {
+        Some(value) => Some(value.as_str()),
+        None => project.description.as_deref(),
+    };
+
+    match update_project(
+        &state.pool,
+        project_id,
+        name,
+        description,
+    )
+    .await
+    {
+        Ok(true) => (
+            StatusCode::OK,
+            Json(ApiMessage {
+                message: "project updated successfully".to_string(),
+            }),
+        )
+            .into_response(),
+
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(ApiMessage {
+                message: "project not found".to_string(),
+            }),
+        )
+            .into_response(),
+
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiMessage {
+                message: "failed to update project".to_string(),
+            }),
+        )
+            .into_response(),
+    }
+}
 
 
 pub fn projects_routes() -> Router<AppState> {
     Router::new()
-    .route("/", post(create_project))
-    .route("/", get(list_projects))
-    .route("/{id}", get(get_project))
+        .route("/", post(create_project).get(list_projects))
+        .route("/{id}", get(get_project).patch(edit_project))   
 }
