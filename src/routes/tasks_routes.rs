@@ -627,6 +627,6 @@ pub fn project_tasks_routes() -> Router<AppState> {
 pub fn task_routes() -> Router<AppState> {
     Router::new()
         .route("/{id}", get(get_task_handler).patch(update_task_handler))
-        .route("{id}", delete(delete_task_handler))
+        .route("/{id}", delete(delete_task_handler))
         .route("/{id}/status", patch(update_task_status_handler))
 }
