@@ -1,19 +1,15 @@
 
-#[path = "../database/database.rs"]
-mod database;
-mod auth;
-mod token;
-mod routes;
-mod seed;
+use project_manager_api::{
+    database,
+    routes,
+    seed,
+    AppState,
+};
 
 use sqlx::sqlite::SqlitePoolOptions;
 use tokio::net::TcpListener;
 
-#[derive(Clone)]
-pub struct AppState {
-    pub pool: sqlx::SqlitePool,
-    pub jwt_secret: String,
-}
+
 
 async fn create_pool() -> Result<sqlx::SqlitePool, sqlx::Error> {
     SqlitePoolOptions::new()

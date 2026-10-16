@@ -14,3 +14,8 @@ jsonwebtoken="9"
 serde = { version = "1", features = ["derive"] }
 dotenvy = "0.15.7"
 sha2 = "0.10"
+
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

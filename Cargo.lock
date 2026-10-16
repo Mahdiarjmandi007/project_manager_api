@@ -1097,12 +1097,14 @@ dependencies = [
  "axum",
  "chrono",
  "dotenvy",
+ "http-body-util",
  "jsonwebtoken",
  "rand_core",
  "serde",
  "sha2",
  "sqlx",
  "tokio",
+ "tower",
 ]
 
 [[package]]

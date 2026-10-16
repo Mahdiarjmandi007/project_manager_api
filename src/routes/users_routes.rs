@@ -569,5 +569,6 @@ pub fn users_routes() -> Router<AppState> {
     .route("/", get(list_users))
     .route("/{id}", get(get_user))
     .route("/{id}/role", patch(update_user_role))
+    .route("/{id}/status", patch(update_user_status))
 
 }
