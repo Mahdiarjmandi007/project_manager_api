@@ -17,6 +17,7 @@ use crate::{
         update_project,
         delete_project,
         add_project_member,
+        remove_project_member,
     },
     AppState,
 };
@@ -465,8 +466,6 @@ async fn edit_project(
     }
 }
 
-
-
 async fn remove_project(
     State(state): State<AppState>,
     Path(project_id): Path<i64>,
@@ -726,10 +725,121 @@ async fn add_member(
     }
 }
 
+async fn remove_member(
+    State(state): State<AppState>,
+    Path((project_id, target_user_id)): Path<(i64, i64)>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let claims = match authenticate(&headers, &state) {
+        Ok(claims) => claims,
+        Err(message) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: message.to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    if claims.role != "admin" && claims.role != "manager" {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ApiMessage {
+                message: "you do not have permission to remove project members"
+                    .to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    let user_id = match claims.sub.parse::<i64>() {
+        Ok(id) => id,
+        Err(_) => return StatusCode::UNAUTHORIZED.into_response(),
+    };
+
+    let project = match get_project_by_id(&state.pool, project_id).await {
+        Ok(Some(project)) => project,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ApiMessage {
+                    message: "project not found".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+
+    if claims.role == "manager" && project.owner_id != user_id {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ApiMessage {
+                message: "you can only manage members of your own projects"
+                    .to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    if project.owner_id == target_user_id {
+        return (
+            StatusCode::CONFLICT,
+            Json(ApiMessage {
+                message: "the project owner cannot be removed from the project"
+                    .to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    let is_member = match sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(
+            SELECT 1
+            FROM projectmember
+            WHERE project_id = ? AND user_id = ?
+        )",
+    )
+    .bind(project_id)
+    .bind(target_user_id)
+    .fetch_one(&state.pool)
+    .await
+    {
+        Ok(value) => value,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+
+    if !is_member {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(ApiMessage {
+                message: "user is not a member of this project".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    match remove_project_member(&state.pool, project_id, target_user_id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(ApiMessage {
+                message: "project membership not found".to_string(),
+            }),
+        )
+            .into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
 
 pub fn projects_routes() -> Router<AppState> {
     Router::new()
         .route("/", post(create_project).get(list_projects))
         .route("/{id}", get(get_project).patch(edit_project).delete(remove_project))
-        .route("/{id}/members", post(add_member))   
+        .route("/{id}/members", post(add_member))
+        .route("/{id}/members/{userId}",delete(remove_member),
+)   
 }

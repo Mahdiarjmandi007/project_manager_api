@@ -194,3 +194,20 @@ pub async fn add_project_member(
 }
 
 
+
+pub async fn remove_project_member(
+    pool: &sqlx::SqlitePool,
+    project_id: i64,
+    user_id: i64,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        "DELETE FROM projectmember
+         WHERE project_id = ? AND user_id = ?",
+    )
+    .bind(project_id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
