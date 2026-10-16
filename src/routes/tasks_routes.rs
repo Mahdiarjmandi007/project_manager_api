@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::get,
+    routing::{get,patch,delete},
     Json, Router,
 };
 use serde::Deserialize;
@@ -15,9 +15,13 @@ use crate::{
     get_project_tasks,
     get_task_by_id,
     update_task,
+    update_task_status,
+    delete_task,
     },
     AppState,
 };
+
+
 
 #[derive(Deserialize)]
 struct TaskQuery {
@@ -51,6 +55,13 @@ struct UpdateTaskRequest {
     description: Option<String>,
     assignee_id: Option<i64>,
 }
+
+
+#[derive(Deserialize)]
+struct UpdateTaskStatusRequest {
+    status: String,
+}
+
 
 #[derive(serde::Serialize)]
 struct TaskCreatedResponse {
@@ -568,6 +579,184 @@ async fn update_task_handler(
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
+
+async fn update_task_status_handler(
+    State(state): State<AppState>,
+    Path(task_id): Path<i64>,
+    headers: HeaderMap,
+    Json(payload): Json<UpdateTaskStatusRequest>,
+) -> impl IntoResponse {
+    
+    let claims = match authenticate(&headers, &state) {
+        Ok(claims) => claims,
+        Err(message) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: message.to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let user_id = match claims.sub.parse::<i64>() {
+        Ok(id) => id,
+        Err(_) => return StatusCode::UNAUTHORIZED.into_response(),
+    };
+
+    
+    if !["todo", "in_progress", "done"].contains(&payload.status.as_str()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiMessage {
+                message: "Invalid task status".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    
+    let task = match get_task_by_id(&state.pool, task_id).await {
+        Ok(Some(task)) => task,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ApiMessage {
+                    message: "Task not found".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+
+    
+    let allowed = match claims.role.as_str() {
+        "admin" => true,
+
+        "manager" => {
+            match query_scalar::<_, bool>(
+                "SELECT EXISTS(
+                    SELECT 1 FROM projects
+                    WHERE id = ? AND owner_id = ?
+                )",
+            )
+            .bind(task.project_id)
+            .bind(user_id)
+            .fetch_one(&state.pool)
+            .await
+            {
+                Ok(value) => value,
+                Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            }
+        }
+
+        "member" => task.assignee_id == Some(user_id),
+
+        _ => false,
+    };
+
+    if !allowed {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ApiMessage {
+                message: "You are not allowed to change this task's status".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    
+    match update_task_status(
+        &state.pool,
+        task_id,
+        &payload.status,
+    )
+    .await
+    {
+        Ok(true) => (
+            StatusCode::OK,
+            Json(ApiMessage {
+                message: "Task status updated successfully".to_string(),
+            }),
+        )
+            .into_response(),
+
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+
+async fn delete_task_handler(
+    State(state): State<AppState>,
+    Path(task_id): Path<i64>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let claims = match authenticate(&headers, &state) {
+        Ok(claims) => claims,
+        Err(message) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiMessage {
+                    message: message.to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let user_id = match claims.sub.parse::<i64>() {
+        Ok(id) => id,
+        Err(_) => return StatusCode::UNAUTHORIZED.into_response(),
+    };
+
+    let task = match get_task_by_id(&state.pool, task_id).await {
+        Ok(Some(task)) => task,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+
+    let allowed = if claims.role == "admin" {
+        true
+    } else if claims.role == "manager" {
+        match query_scalar::<_, bool>(
+            "SELECT EXISTS(
+                SELECT 1 FROM projects
+                WHERE id = ? AND owner_id = ?
+            )",
+        )
+        .bind(task.project_id)
+        .bind(user_id)
+        .fetch_one(&state.pool)
+        .await
+        {
+            Ok(value) => value,
+            Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        }
+    } else {
+        false
+    };
+
+    if !allowed {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ApiMessage {
+                message: "You are not allowed to delete this task".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    match delete_task(&state.pool, task_id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
 pub fn project_tasks_routes() -> Router<AppState> {
     Router::new()
         .route("/{id}/tasks", get(list_tasks).post(create_task_handler))
@@ -575,5 +764,6 @@ pub fn project_tasks_routes() -> Router<AppState> {
 
 pub fn task_routes() -> Router<AppState> {
     Router::new()
-        .route("/{id}",get(get_task_handler).patch(update_task_handler),)
+        .route("/{id}",get(get_task_handler).patch(update_task_handler).delete(delete_task_handler),)
+        .route("/{id}/status", patch(update_task_status_handler))
 }

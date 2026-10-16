@@ -165,3 +165,47 @@ pub async fn update_task(
 
     Ok(result.rows_affected() > 0)
 }
+
+
+pub async fn update_task_status(
+    pool: &SqlitePool,
+    task_id: i64,
+    status: &str,
+) -> Result<bool, sqlx::Error> {
+    let updated_at = chrono::Utc::now()
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
+
+    let result = sqlx::query(
+        r#"
+        UPDATE tasks
+        SET status = ?,
+            updated_at = ?,
+            update_count = update_count + 1
+        WHERE id = ?
+        "#,
+    )
+    .bind(status)
+    .bind(&updated_at)
+    .bind(task_id)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+
+pub async fn delete_task(
+    pool: &SqlitePool,
+    task_id: i64,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        "DELETE FROM tasks WHERE id = ?"
+    )
+    .bind(task_id)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
