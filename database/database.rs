@@ -1,6 +1,7 @@
 use sqlx::SqlitePool;
 pub mod users;
 pub mod refresh_tokens;
+pub mod projects;
 pub async fn create_users_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"

@@ -537,15 +537,15 @@ pub async fn update_user_status(
                 .into_response();
         }
     };
-match change_user_status(&state.pool, user_id, &request.status).await {
-    Ok(true) => (
-        StatusCode::OK,
-        Json(ChangeStatusResponse {
-            message: "user status updated successfully".to_string(),
-            user_id: target_user.id,
+    match change_user_status(&state.pool, user_id, &request.status).await {
+        Ok(true) => (
+            StatusCode::OK,
+            Json(ChangeStatusResponse {
+                message: "user status updated successfully".to_string(),
+                user_id: target_user.id,
         }),
-    )
-        .into_response(),
+        )
+            .into_response(),
 
     Ok(false) => (
         StatusCode::NOT_FOUND,

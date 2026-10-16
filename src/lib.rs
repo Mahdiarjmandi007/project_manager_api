@@ -6,6 +6,7 @@ pub mod auth;
 pub mod token;
 pub mod routes;
 pub mod seed;
+pub mod auth_middleware;
 
 #[derive(Clone)]
 pub struct AppState {

@@ -6,6 +6,7 @@ use axum::{
 use crate::AppState;
 mod users_routes;
 mod auth_routes;
+mod projects_routes;
 
 async fn home() -> &'static str {
     "Project Manager API is running!"
@@ -15,6 +16,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/", get(home))
         .nest("/auth", auth_routes::auth_routes())
         .nest("/users",users_routes::users_routes())
+        .nest("/projects", projects_routes::projects_routes())
         .with_state(state)
 }
 
